@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">心芽DTx</string>
+    <string name="app_description">骨髓移植隔离病房数字疗法系统</string>
+    
+    <!-- 智能体名称 -->
+    <string name="agent_xiaoya">小芽</string>
+    <string name="agent_nurse">小护士</string>
+    
+    <!-- 功能模块 -->
+    <string name="module_home">心之港湾</string>
+    <string name="module_hope_tree">希望之树</string>
+    <string name="module_education">护理学堂</string>
+    <string name="module_pro">每日打卡</string>
+    <string name="module_meditation">冥想空间</string>
+    
+    <!-- 临床阶段 -->
+    <string name="stage_admission">入仓期</string>
+    <string name="stage_pretreatment">预处理期</string>
+    <string name="stage_transplant">移植期</string>
+    <string name="stage_rebuild">重建期</string>
+    <string name="stage_discharge">出仓期</string>
+</resources>

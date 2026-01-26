@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 主题色 -->
+    <color name="primary_green">#4CAF50</color>
+    <color name="primary_green_light">#81C784</color>
+    <color name="primary_green_dark">#388E3C</color>
+    
+    <!-- 能量色 -->
+    <color name="energy_orange">#FF9800</color>
+    <color name="energy_orange_light">#FFB74D</color>
+    
+    <!-- 希望之树 -->
+    <color name="tree_brown">#795548</color>
+    <color name="leaf_green">#8BC34A</color>
+    
+    <!-- 小芽 -->
+    <color name="xiaoya_green">#66BB6A</color>
+    <color name="xiaoya_background">#E8F5E9</color>
+    
+    <!-- 小护士 -->
+    <color name="nurse_blue">#42A5F5</color>
+    <color name="nurse_background">#E3F2FD</color>
+    
+    <!-- 基础色 -->
+    <color name="white">#FFFFFF</color>
+    <color name="black">#000000</color>
+    <color name="background_cream">#FFFBF5</color>
+    <color name="text_primary">#212121</color>
+    <color name="text_secondary">#757575</color>
+    
+    <!-- 警示色 -->
+    <color name="alert_red">#E53935</color>
+    <color name="warning_yellow">#FFC107</color>
+</resources>
