@@ -1,16 +1,12 @@
 package com.xinya.dtx.entity;
 
 import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.*;
+import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.LocalDateTime;
 
-/**
- * 宣教内容实体
- */
 @Entity
 @Table(name = "education_contents")
 @Data
@@ -18,55 +14,54 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 public class EducationContent {
-    
+
     @Id
-    @Column(length = 36)
+    @Column(name = "id", length = 36)
     private String id;
-    
-    @Column(nullable = false, length = 200)
+
+    @Column(name = "title", length = 200, nullable = false)
     private String title;
-    
-    @Column(nullable = false, length = 50)
+
+    /** 适用临床阶段，null=全阶段 */
+    @Column(name = "stage", length = 20)
+    private String stage;
+
+    @Column(name = "category", length = 50, nullable = false)
     private String category;
-    
-    @Column(length = 500)
+
+    @Column(name = "description", length = 500)
     private String description;
-    
-    @Column(name = "content_type", nullable = false, length = 20)
-    private String contentType;  // "video" | "article"
-    
+
+    /** video | article */
+    @Column(name = "content_type", length = 20, nullable = false)
+    private String contentType;
+
     @Column(name = "duration_seconds")
     private Integer durationSeconds;
-    
+
     @Column(name = "thumbnail_url", length = 500)
     private String thumbnailUrl;
-    
+
     @Column(name = "media_url", length = 500)
     private String mediaUrl;
-    
-    @Column(length = 500)
-    private String tags;  // 逗号分隔的标签
-    
-    @Column(name = "sort_order")
+
+    /** 逗号分隔的标签 */
+    @Column(name = "tags", length = 500)
+    private String tags;
+
+    @Column(name = "sort_order", nullable = false)
+    @Builder.Default
     private Integer sortOrder = 0;
-    
-    @Column(name = "is_active")
+
+    @Column(name = "is_active", nullable = false)
+    @Builder.Default
     private Boolean isActive = true;
-    
-    @Column(name = "created_at")
+
+    @CreationTimestamp
+    @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
-    
+
+    @UpdateTimestamp
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
-    
-    @PrePersist
-    protected void onCreate() {
-        createdAt = LocalDateTime.now();
-        updatedAt = LocalDateTime.now();
-    }
-    
-    @PreUpdate
-    protected void onUpdate() {
-        updatedAt = LocalDateTime.now();
-    }
 }

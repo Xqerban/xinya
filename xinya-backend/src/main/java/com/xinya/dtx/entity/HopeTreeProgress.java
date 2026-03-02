@@ -1,16 +1,11 @@
 package com.xinya.dtx.entity;
 
 import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.*;
+import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.LocalDateTime;
 
-/**
- * 希望之树进度实体
- */
 @Entity
 @Table(name = "hope_tree_progress")
 @Data
@@ -18,35 +13,39 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 public class HopeTreeProgress {
-    
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "id")
     private Long id;
-    
-    @Column(name = "patient_id", nullable = false, unique = true, length = 36)
+
+    @Column(name = "patient_id", length = 36, nullable = false, unique = true)
     private String patientId;
-    
-    @Column(name = "current_level")
+
+    @Column(name = "current_level", nullable = false)
+    @Builder.Default
     private Integer currentLevel = 1;
-    
-    @Column(name = "current_exp")
+
+    @Column(name = "current_exp", nullable = false)
+    @Builder.Default
     private Integer currentExp = 0;
-    
-    @Column(name = "next_level_exp")
+
+    @Column(name = "total_exp", nullable = false)
+    @Builder.Default
+    private Integer totalExp = 0;
+
+    @Column(name = "next_level_exp", nullable = false)
+    @Builder.Default
     private Integer nextLevelExp = 100;
-    
-    @Column(name = "total_growth_days")
+
+    @Column(name = "total_growth_days", nullable = false)
+    @Builder.Default
     private Integer totalGrowthDays = 0;
-    
+
     @Column(name = "last_growth_date")
     private LocalDateTime lastGrowthDate;
-    
+
+    @UpdateTimestamp
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
-    
-    @PrePersist
-    @PreUpdate
-    protected void onUpdate() {
-        updatedAt = LocalDateTime.now();
-    }
 }

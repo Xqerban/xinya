@@ -1,17 +1,13 @@
 package com.xinya.dtx.entity;
 
 import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.*;
+import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
-/**
- * 患者实体
- */
 @Entity
 @Table(name = "patients")
 @Data
@@ -19,44 +15,51 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 public class Patient {
-    
+
     @Id
-    @Column(length = 36)
+    @Column(name = "id", length = 36)
     private String id;
-    
-    @Column(nullable = false, length = 100)
+
+    @Column(name = "name", length = 100, nullable = false)
     private String name;
-    
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
-    private ClinicalStage stage;
-    
-    @Column(name = "psych_energy")
+
+    @Column(name = "age")
+    private Integer age;
+
+    /** MALE | FEMALE */
+    @Column(name = "gender", length = 10)
+    private String gender;
+
+    @Column(name = "diagnosis", length = 200)
+    private String diagnosis;
+
+    /** ADMISSION | PRETREATMENT | TRANSPLANT | REBUILD | DISCHARGE */
+    @Column(name = "stage", length = 20, nullable = false)
+    @Builder.Default
+    private String stage = "ADMISSION";
+
+    @Column(name = "stage_start_date", nullable = false)
+    private LocalDate stageStartDate;
+
+    @Column(name = "psych_energy", nullable = false)
+    @Builder.Default
     private Integer psychEnergy = 50;
-    
-    @Column(name = "tree_level")
+
+    @Column(name = "tree_level", nullable = false)
+    @Builder.Default
     private Integer treeLevel = 1;
-    
+
     @Column(name = "admission_date", nullable = false)
     private LocalDate admissionDate;
-    
+
     @Column(name = "room_number", length = 20)
     private String roomNumber;
-    
-    @Column(name = "created_at")
+
+    @CreationTimestamp
+    @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
-    
+
+    @UpdateTimestamp
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
-    
-    @PrePersist
-    protected void onCreate() {
-        createdAt = LocalDateTime.now();
-        updatedAt = LocalDateTime.now();
-    }
-    
-    @PreUpdate
-    protected void onUpdate() {
-        updatedAt = LocalDateTime.now();
-    }
 }
