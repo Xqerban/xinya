@@ -243,6 +243,8 @@ class CBTModule:
     def generate_cbt_response(self, user_message: str, analysis: Dict[str, any]) -> str:
         """
         生成CBT干预响应
+        
+        优先使用大模型动态生成个性化的CBT引导语，失败时回退到固定模板
 
         Args:
             user_message: 用户输入
@@ -256,6 +258,110 @@ class CBTModule:
         if not technique:
             return "我理解你的感受。让我们一起探索一下，你目前面临的主要困扰是什么？"
 
+        # 优先使用大模型生成个性化CBT引导
+        if getattr(Config, "CBT_LLM_ENABLED", False):
+            llm_response = self._llm_generate_cbt_guidance(user_message, analysis, technique)
+            if llm_response:
+                return llm_response
+
+        # 兜底：使用固定模板
+        return self._template_based_response(user_message, analysis, technique)
+
+    def _llm_generate_cbt_guidance(self, user_message: str, analysis: Dict[str, any], technique: CBTTechnique) -> Optional[str]:
+        """
+        使用大模型动态生成个性化的CBT引导语
+        
+        Args:
+            user_message: 用户输入
+            analysis: CBT分析结果
+            technique: 推荐的CBT技术
+            
+        Returns:
+            生成的CBT引导语，失败返回None
+        """
+        client = self._get_llm_client()
+        if client is None:
+            return None
+
+        try:
+            # 获取情绪和认知扭曲信息
+            emotional_state = analysis.get("emotional_state", {})
+            emotion = emotional_state.get("primary", "neutral")
+            severity = emotional_state.get("severity", 5)
+            distortions = analysis.get("cognitive_distortions", [])
+            
+            # 构建技术说明
+            technique_descriptions = {
+                CBTTechnique.COGNITIVE_RESTRUCTURING: "认知重构：帮助用户识别和挑战负面思维，寻找证据，改写成更平衡的想法",
+                CBTTechnique.BEHAVIORAL_ACTIVATION: "行为激活：鼓励用户做一个非常小的行动，打破'什么都不想做'的循环",
+                CBTTechnique.PROBLEM_SOLVING: "问题解决：帮助用户把大问题拆解成小步骤，找到可行的下一步",
+                CBTTechnique.RELAXATION_TRAINING: "放松训练：引导用户做简单的呼吸练习，缓解身体紧张",
+                CBTTechnique.MINDFULNESS: "正念练习：引导用户把注意力放回当下，观察而不评判自己的想法和感受",
+                CBTTechnique.THOUGHT_RECORDING: "思维记录：帮助用户记录和分析自己的想法、情绪和情境",
+                CBTTechnique.EXPOSURE_TECHNIQUE: "暴露技术：逐步帮助用户面对恐惧的情境",
+                CBTTechnique.ACTIVITY_SCHEDULING: "活动安排：帮助用户规划有意义的日常活动"
+            }
+            
+            technique_desc = technique_descriptions.get(technique, "CBT技术")
+            distortions_str = "、".join(distortions) if distortions else "无明显认知扭曲"
+
+            system_prompt = (
+                "你是小芽，一个温暖、专业的心理支持伙伴，专门陪伴骨髓移植患者。\n"
+                "你的任务是根据CBT技术，生成一段口语化、温暖、个性化的引导语。\n\n"
+                "要求：\n"
+                "1. 语气温暖、口语化，像朋友聊天一样，用'你'、'咱们'等称呼\n"
+                "2. 针对用户的具体情况，不要泛泛而谈\n"
+                "3. 引导要具体、可操作，步骤简单清晰\n"
+                "4. 长度控制在50-150字\n"
+                "5. 不要说教，不要用'您应该'、'必须'等词\n"
+                "6. 适合语音播报，避免使用编号、列表符号\n"
+                "7. 体现共情和陪伴感\n"
+            )
+
+            user_prompt = (
+                f"用户说：{user_message}\n\n"
+                f"CBT分析结果：\n"
+                f"- 主要情绪：{emotion}（强度{severity}/10）\n"
+                f"- 认知扭曲：{distortions_str}\n"
+                f"- 推荐技术：{technique_desc}\n\n"
+                f"请生成一段温暖、口语化的CBT引导语，帮助用户使用{technique.value}技术。\n"
+                f"直接输出引导语内容，不要加任何前缀或解释。"
+            )
+
+            resp = client.chat.completions.create(
+                model=Config.MODEL_NAME,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0.8,  # 稍高的温度以获得更自然的表达
+                max_tokens=600
+            )
+            
+            guidance = resp.choices[0].message.content.strip()
+            
+            # 验证生成的内容不为空且长度合理
+            if guidance and 50 <= len(guidance) <= 500:
+                return guidance
+            else:
+                return None
+                
+        except Exception as e:
+            print(f"大模型生成CBT引导失败: {e}")
+            return None
+
+    def _template_based_response(self, user_message: str, analysis: Dict[str, any], technique: CBTTechnique) -> str:
+        """
+        使用固定模板生成CBT响应（兜底方案）
+        
+        Args:
+            user_message: 用户输入
+            analysis: 分析结果
+            technique: CBT技术
+            
+        Returns:
+            基于模板的CBT响应
+        """
         # 获取对应的提示词模板
         template = self.technique_prompts.get(technique.value, "")
 
