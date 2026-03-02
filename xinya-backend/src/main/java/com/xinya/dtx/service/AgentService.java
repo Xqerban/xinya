@@ -1,7 +1,7 @@
 package com.xinya.dtx.service;
 
 import com.xinya.dtx.config.AiClientConfig;
-import com.xinya.dtx.dto.AgentChatResponse;
+import com.xinya.dtx.common.dto.AgentChatResponse;
 import com.xinya.dtx.entity.Conversation;
 import com.xinya.dtx.repository.ConversationRepository;
 import lombok.RequiredArgsConstructor;
@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.UUID;
 
 @Slf4j
 @Service
@@ -22,11 +23,22 @@ public class AgentService {
     
     @Transactional
     public AgentChatResponse chat(String patientId, String agentType, String message, String sessionId) {
+        // sessionId 为空时自动生成，防止数据库约束违反
+        String resolvedSessionId = (sessionId != null && !sessionId.isBlank())
+            ? sessionId
+            : UUID.randomUUID().toString();
+
+        // 在保存/生成回复前先执行危机干预检测
+        boolean crisisDetected = detectCrisisSignal(message);
+        if (crisisDetected) {
+            log.warn("危机信号检测！patientId={}, message={}", patientId, message);
+        }
+
         // 保存用户消息
         Conversation userMessage = Conversation.builder()
             .patientId(patientId)
             .agentType(agentType)
-            .sessionId(sessionId)
+            .sessionId(resolvedSessionId)
             .message(message)
             .isFromUser(true)
             .build();
@@ -34,12 +46,17 @@ public class AgentService {
         
         // 生成回复（当前返回默认值，后续接入AI）
         AgentChatResponse response = generateResponse(patientId, agentType, message);
+
+        // 如果检测到危机信号，覆盖回复中的 crisisAlert 字段
+        if (crisisDetected) {
+            response.setCrisisAlert(true);
+        }
         
         // 保存AI回复
         Conversation aiReply = Conversation.builder()
             .patientId(patientId)
             .agentType(agentType)
-            .sessionId(sessionId)
+            .sessionId(resolvedSessionId)
             .message(response.getReply())
             .isFromUser(false)
             .psychEnergyDelta(response.getPsychEnergyDelta())

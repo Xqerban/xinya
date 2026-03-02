@@ -34,7 +34,7 @@ public class ClinicalPathService {
         try {
             ClinicalStage targetStage = ClinicalStage.valueOf(targetStageName.toUpperCase());
             return patientService.updateStage(patientId, targetStage);
-        } catch (IllegalArgumentException e) {
+        } catch (IllegalArgumentException | IllegalStateException e) {
             return Optional.empty();
         }
     }

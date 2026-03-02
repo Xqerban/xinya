@@ -1,0 +1,17 @@
+# 虚拟环境
+venv/
+.venv/
+Code/*.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.so
+*.json
+
+# 环境变量（含密钥）
+config.env
+

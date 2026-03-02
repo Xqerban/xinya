@@ -3,18 +3,19 @@ package com.xinya.dtx.service;
 import com.xinya.dtx.dto.HopeTreeDto;
 import com.xinya.dtx.entity.HopeTreeProgress;
 import com.xinya.dtx.repository.HopeTreeRepository;
+import com.xinya.dtx.repository.PatientRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
 public class HopeTreeService {
     
     private final HopeTreeRepository hopeTreeRepository;
+    private final PatientRepository patientRepository;
     
     // 每级升级所需经验值
     private static final int[] LEVEL_EXP = {0, 100, 250, 450, 700, 1000, 1400, Integer.MAX_VALUE};
@@ -52,10 +53,20 @@ public class HopeTreeService {
         // 更新进度
         progress.setCurrentExp(newExp);
         progress.setCurrentLevel(newLevel);
-        progress.setNextLevelExp(LEVEL_EXP[Math.min(newLevel, 6)]);
+        // 达到最高等级(7)时 nextLevelExp 设为0，表示无需继续升级
+        progress.setNextLevelExp(newLevel >= 7 ? 0 : LEVEL_EXP[newLevel]);
         progress.setLastGrowthDate(LocalDateTime.now());
         
         hopeTreeRepository.save(progress);
+
+        // 同步更新 Patient.treeLevel，确保两处数据一致
+        if (newLevel > oldLevel) {
+            int finalNewLevel = newLevel;
+            patientRepository.findById(patientId).ifPresent(patient -> {
+                patient.setTreeLevel(finalNewLevel);
+                patientRepository.save(patient);
+            });
+        }
         
         return new GrowResult(
             true,

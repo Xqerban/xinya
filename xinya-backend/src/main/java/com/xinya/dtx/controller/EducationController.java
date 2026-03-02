@@ -1,6 +1,6 @@
 package com.xinya.dtx.controller;
 
-import com.xinya.dtx.dto.ApiResponse;
+import com.xinya.dtx.common.dto.ApiResponse;
 import com.xinya.dtx.dto.EducationDto;
 import com.xinya.dtx.service.EducationService;
 import io.swagger.v3.oas.annotations.Operation;
