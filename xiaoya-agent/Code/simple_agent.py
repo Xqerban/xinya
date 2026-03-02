@@ -32,6 +32,9 @@ class EnhancedChatAgent:
         self.conversation_history: List[Dict[str, str]] = [
             {"role": "system", "content": self.system_prompt}
         ]
+        
+        # 增量摘要：记忆中枢（每轮对话后更新）
+        self.memory_core: Optional[str] = None
 
         # 初始化增强模块
         self.cbt_module = CBTModule()
@@ -77,11 +80,11 @@ class EnhancedChatAgent:
 
         # 4. 生成回复
         if crisis_detection.get("alert", False):
-            # 需求：对 crisis 直接报警，不进行其他操作（不输出话术/提示）
+            # 对 crisis 直接报警，不进行其他操作（不输出话术/提示）
             response = ""
             response_type = "crisis_alert"
         else:
-            # 骨髓移植分期情境触发（task1）
+            # 骨髓移植分期情境触发
             response = None
             response_type = None
             transplant_trigger = None
@@ -141,7 +144,11 @@ class EnhancedChatAgent:
             conversation_data["cbt_response"] = response
             energy_assessment = self.energy_model.assess_conversation_quality(conversation_data)
 
-        # 8. 返回完整结果
+        # 8. 增量摘要：每轮对话后更新记忆中枢
+        if Config.HISTORY_COMPRESSION_ENABLED:
+            self._update_memory_core(user_message, response, cbt_analysis, crisis_detection)
+
+        # 9. 返回完整结果
         return {
             "response": response,
             "response_type": response_type,
@@ -191,13 +198,13 @@ class EnhancedChatAgent:
     def _generate_cbt_response(self, user_message: str, analysis: Dict) -> str:
         """生成CBT干预响应"""
         try:
+            # 获取用于API调用的消息列表（可能包含压缩后的历史）
+            messages_for_api = self._get_messages_for_api(user_message)
+
             # 调用API生成基础回复
             api_response = self.client.chat.completions.create(
                 model=self.model,
-                messages=self.conversation_history + [{
-                    "role": "user",
-                    "content": user_message
-                }],
+                messages=messages_for_api,
                 temperature=self.temperature,
                 max_tokens=self.max_tokens
             )
@@ -286,6 +293,109 @@ class EnhancedChatAgent:
         print("3. 可同时联系专业心理援助热线")
         print("="*60 + "\n")
 
+    def _get_messages_for_api(self, user_message: str) -> List[Dict[str, str]]:
+        """
+        获取用于API调用的消息列表
+        如果启用增量摘要，只传入记忆中枢 + 当前问题
+        否则传入完整历史
+        """
+        if not Config.HISTORY_COMPRESSION_ENABLED:
+            # 未启用压缩，返回完整历史
+            return self.conversation_history + [{"role": "user", "content": user_message}]
+
+        # 增量摘要模式：只传入记忆中枢 + 当前问题
+        system_msg = self.conversation_history[0]
+        messages = [system_msg]
+
+        # 如果有记忆中枢，添加到消息中
+        if self.memory_core:
+            messages.append({
+                "role": "system",
+                "content": f"【记忆中枢】以下是之前对话的核心信息：\n{self.memory_core}"
+            })
+
+        # 添加当前用户输入
+        messages.append({"role": "user", "content": user_message})
+
+        return messages
+
+    def _update_memory_core(self, user_message: str, response: str, cbt_analysis: Dict, crisis_detection: Dict):
+        """
+        更新记忆中枢：每轮对话后生成增量摘要
+        将本轮对话的核心信息融合到记忆中枢中
+        """
+        try:
+            # 提取本轮关键信息
+            emotional_state = cbt_analysis.get("emotional_state", {})
+            emotion = emotional_state.get("primary_emotion", "未知")
+            severity = emotional_state.get("severity", 0)
+            distortions = cbt_analysis.get("cognitive_distortions", [])
+            crisis_level = crisis_detection.get("risk_level", 0)
+
+            # 构建本轮摘要提示
+            if self.memory_core:
+                # 已有记忆中枢，进行增量更新
+                prompt = (
+                    f"你是记忆中枢管理器。请将本轮对话的核心信息融合到现有记忆中，生成更新后的记忆摘要。\n\n"
+                    f"【现有记忆】\n{self.memory_core}\n\n"
+                    f"【本轮对话】\n"
+                    f"用户: {user_message}\n"
+                    f"小芽: {response}\n\n"
+                    f"【本轮分析】\n"
+                    f"- 主要情绪: {emotion} (强度: {severity}/10)\n"
+                    f"- 认知扭曲: {', '.join(distortions) if distortions else '无'}\n"
+                    f"- 危机等级: {crisis_level}/10\n\n"
+                    f"请生成更新后的记忆摘要，要求：\n"
+                    f"1. 保留用户的核心问题、情绪特征、重要进展\n"
+                    f"2. 融合本轮新信息（如有重要变化）\n"
+                    f"3. 删除过时或不重要的信息\n"
+                    f"4. 控制在{Config.INCREMENTAL_SUMMARY_MAX_WORDS}字以内\n"
+                    f"5. 用第三人称客观描述\n\n"
+                    f"只输出更新后的记忆摘要，不要添加其他内容："
+                )
+            else:
+                # 首次生成记忆中枢
+                prompt = (
+                    f"你是记忆中枢管理器。请为首轮对话生成核心信息摘要。\n\n"
+                    f"【本轮对话】\n"
+                    f"用户: {user_message}\n"
+                    f"小芽: {response}\n\n"
+                    f"【本轮分析】\n"
+                    f"- 主要情绪: {emotion} (强度: {severity}/10)\n"
+                    f"- 认知扭曲: {', '.join(distortions) if distortions else '无'}\n"
+                    f"- 危机等级: {crisis_level}/10\n\n"
+                    f"请生成记忆摘要，要求：\n"
+                    f"1. 提取用户的核心问题和关注点\n"
+                    f"2. 记录用户的情绪状态和心理特征\n"
+                    f"3. 控制在{Config.INCREMENTAL_SUMMARY_MAX_WORDS}字以内\n"
+                    f"4. 用第三人称客观描述\n\n"
+                    f"只输出记忆摘要，不要添加其他内容："
+                )
+
+            # 调用LLM生成/更新记忆中枢
+            api_response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "你是一个专业的记忆中枢管理器，擅长提取和融合对话中的核心信息。"},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,  # 使用较低温度以获得更稳定的摘要
+                max_tokens=600
+            )
+
+            new_memory = api_response.choices[0].message.content.strip()
+            self.memory_core = new_memory
+
+            # 可选：打印记忆更新日志（调试用）
+            if os.getenv("DEBUG_MEMORY_CORE", "false").lower() == "true":
+                print(f"\n[记忆中枢已更新] {new_memory[:100]}...\n")
+
+        except Exception as e:
+            print(f"更新记忆中枢失败: {str(e)}")
+            # 失败时使用简单的记录
+            if not self.memory_core:
+                self.memory_core = f"用户表达了关于心理健康的问题，情绪状态为{emotion}。"
+
     def _load_persistent_data(self):
         """加载持久化数据"""
         try:
@@ -364,21 +474,24 @@ class EnhancedChatAgent:
             {"role": "system", "content": self.system_prompt}
         ]
 
-        # 2. 重置用户状态
+        # 2. 重置记忆中枢
+        self.memory_core = None
+
+        # 3. 重置用户状态
         self.user_state = {
             "transplant_phase": TransplantPhase.PREP.value
         }
 
-        # 3. 重新初始化 CBT 模块（重置用户档案）
+        # 4. 重新初始化 CBT 模块（重置用户档案）
         self.cbt_module = CBTModule()
 
-        # 4. 重新初始化能量模型（重置所有进度）
+        # 5. 重新初始化能量模型（重置所有进度）
         self.energy_model = PsychologicalEnergyModel()
 
-        # 5. 重新初始化危机干预模块（重置危机历史）
+        # 6. 重新初始化危机干预模块（重置危机历史）
         self.crisis_module = CrisisInterventionModule(alert_callback=self._crisis_alert_callback)
 
-        # 6. 删除所有持久化文件
+        # 7. 删除所有持久化文件
         files_to_delete = [
             "chat_history.json",
             "user_state.json",

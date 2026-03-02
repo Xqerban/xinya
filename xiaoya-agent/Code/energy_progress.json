@@ -1,0 +1,214 @@
+{
+  "total_energy": 146,
+  "dimension_scores": {
+    "认知成长": 2,
+    "情绪调节": 75,
+    "行为改变": 0,
+    "社交连接": 0,
+    "自我效能": 0
+  },
+  "session_history": [
+    {
+      "timestamp": "2026-02-15T17:02:28.662731",
+      "user_message": "你好",
+      "dimension_gains": {
+        "认知成长": 0,
+        "情绪调节": 15,
+        "行为改变": 0,
+        "社交连接": 0,
+        "自我效能": 0
+      },
+      "total_gain": 15,
+      "multiplier": 1.0,
+      "analysis": {
+        "emotional_state": {
+          "primary": "calm",
+          "severity": 1,
+          "details": {}
+        },
+        "cognitive_distortions": [],
+        "problem_severity": 1,
+        "intervention_needed": false,
+        "recommended_technique": "正念练习"
+      }
+    },
+    {
+      "timestamp": "2026-02-15T17:02:58.711775",
+      "user_message": "我怎么感觉有点头晕",
+      "dimension_gains": {
+        "认知成长": 2,
+        "情绪调节": 15,
+        "行为改变": 0,
+        "社交连接": 0,
+        "自我效能": 0
+      },
+      "total_gain": 17,
+      "multiplier": 1.0,
+      "analysis": {
+        "emotional_state": {
+          "primary": "anxiety",
+          "severity": 3,
+          "details": {}
+        },
+        "cognitive_distortions": [],
+        "problem_severity": 2,
+        "intervention_needed": false,
+        "recommended_technique": "正念练习"
+      }
+    },
+    {
+      "timestamp": "2026-02-15T17:03:23.462325",
+      "user_message": "我头好晕",
+      "dimension_gains": {
+        "认知成长": 0,
+        "情绪调节": 10,
+        "行为改变": 0,
+        "社交连接": 0,
+        "自我效能": 0
+      },
+      "total_gain": 10,
+      "multiplier": 1.0,
+      "analysis": {
+        "emotional_state": {
+          "primary": "anxiety",
+          "severity": 5,
+          "details": {}
+        },
+        "cognitive_distortions": [],
+        "problem_severity": 4,
+        "intervention_needed": false,
+        "recommended_technique": "放松训练"
+      }
+    },
+    {
+      "timestamp": "2026-02-15T17:03:48.674590",
+      "user_message": "我好难受啊",
+      "dimension_gains": {
+        "认知成长": 0,
+        "情绪调节": 5,
+        "行为改变": 0,
+        "社交连接": 0,
+        "自我效能": 0
+      },
+      "total_gain": 6,
+      "multiplier": 1.32,
+      "analysis": {
+        "emotional_state": {
+          "primary": "sadness",
+          "severity": 7,
+          "details": {}
+        },
+        "cognitive_distortions": [],
+        "problem_severity": 7,
+        "intervention_needed": true,
+        "recommended_technique": "思维记录"
+      }
+    },
+    {
+      "timestamp": "2026-02-15T17:05:22.574709",
+      "user_message": "我最近又好起来了",
+      "dimension_gains": {
+        "认知成长": 0,
+        "情绪调节": 15,
+        "行为改变": 0,
+        "社交连接": 0,
+        "自我效能": 0
+      },
+      "total_gain": 19,
+      "multiplier": 1.32,
+      "analysis": {
+        "emotional_state": {
+          "primary": "hope",
+          "severity": 3,
+          "details": {}
+        },
+        "cognitive_distortions": [],
+        "problem_severity": 2,
+        "intervention_needed": false,
+        "recommended_technique": "行为激活"
+      }
+    },
+    {
+      "timestamp": "2026-03-02T17:40:18.638866",
+      "user_message": "你好",
+      "dimension_gains": {
+        "认知成长": 0,
+        "情绪调节": 15,
+        "行为改变": 0,
+        "社交连接": 0,
+        "自我效能": 0
+      },
+      "total_gain": 19,
+      "multiplier": 1.32,
+      "analysis": {
+        "emotional_state": {
+          "primary": "calm",
+          "severity": 1,
+          "details": {}
+        },
+        "cognitive_distortions": [],
+        "problem_severity": 1,
+        "intervention_needed": false,
+        "recommended_technique": "正念练习"
+      }
+    }
+  ],
+  "achievements": [
+    {
+      "name": "第一步",
+      "description": "完成第一次对话",
+      "category": "基础",
+      "threshold": 1,
+      "reward": 10,
+      "check_type": "session_count",
+      "id": "first_step",
+      "unlocked_at": "2026-02-15T17:02:28.662731"
+    },
+    {
+      "name": "早起的鸟儿",
+      "description": "完成5次对话",
+      "category": "基础",
+      "threshold": 5,
+      "reward": 20,
+      "check_type": "session_count",
+      "id": "early_bird",
+      "unlocked_at": "2026-02-15T17:05:22.574709"
+    },
+    {
+      "name": "情绪觉察者",
+      "description": "情绪调节维度达到50分",
+      "category": "情绪",
+      "threshold": 50,
+      "reward": 30,
+      "check_type": "dimension_emotional",
+      "id": "emotion_aware",
+      "unlocked_at": "2026-02-15T17:05:22.574709"
+    }
+  ],
+  "energy_trends": [
+    15,
+    17,
+    10,
+    6,
+    19,
+    19
+  ],
+  "achievement_counters": {
+    "mindfulness_count": 0,
+    "cognitive_restructure_count": 0,
+    "behavioral_activation_count": 0,
+    "consecutive_days": 1,
+    "last_session_date": "2026-03-02",
+    "positive_emotion_count": 2,
+    "crisis_overcome_count": 0,
+    "high_quality_session_count": 0,
+    "dimension_milestones": {
+      "认知成长": 0,
+      "情绪调节": 50,
+      "行为改变": 0,
+      "社交连接": 0,
+      "自我效能": 0
+    }
+  },
+  "last_updated": "2026-03-02T17:40:30.020234"
+}

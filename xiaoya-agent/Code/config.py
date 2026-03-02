@@ -58,6 +58,10 @@ class Config:
     # 自动保存配置
     AUTO_SAVE_PROGRESS = os.getenv('AUTO_SAVE_PROGRESS', 'true').lower() == 'true'
 
+    # 对话历史压缩配置（增量摘要/记忆中枢）
+    HISTORY_COMPRESSION_ENABLED = os.getenv('HISTORY_COMPRESSION_ENABLED', 'true').lower() == 'true'
+    INCREMENTAL_SUMMARY_MAX_WORDS = int(os.getenv('INCREMENTAL_SUMMARY_MAX_WORDS', '300'))  # 增量摘要最大字数
+
     @classmethod
     def validate_config(cls):
         """验证配置是否完整"""

@@ -14,7 +14,7 @@ init(autoreset=True)
 def print_welcome():
     """打印欢迎信息"""
     print(Fore.CYAN + "=" * 60)
-    print(Fore.YELLOW + " 欢迎使用小芽智能体（测试版）")
+    print(Fore.YELLOW + " 欢迎使用小芽智能体")
     print(Fore.CYAN + "=" * 60)
     print(Fore.YELLOW + " 集成的功能:")
     print(Fore.YELLOW + "  - CBT (认知行为疗法) 对话策略")
@@ -27,15 +27,16 @@ def print_welcome():
 def print_help():
     """打印帮助信息"""
     print(Fore.YELLOW + "\n 可用命令:")
-    print("  quit/exit  - 退出程序")
-    print("  save       - 保存所有进度")
-    print("  load       - 加载对话历史")
-    print("  phase      - 查看/设置骨髓移植分期（pre/key/post）")
-    print("  energy     - 查看心理能量报告")
-    print("  progress   - 查看综合进步报告")
-    print("  grounding  - 获取正念接地练习")
-    print("  reset      - 重置所有数据（清除所有历史记录）")
-    print("  help       - 显示此帮助信息")
+    print("  quit/exit     - 退出程序")
+    print("  save          - 保存所有进度")
+    print("  load          - 加载对话历史")
+    print("  phase         - 查看/设置骨髓移植分期（pre/key/post）")
+    print("  energy        - 查看心理能量报告")
+    print("  achievements  - 查看成就系统")
+    print("  progress      - 查看综合进步报告")
+    print("  grounding     - 获取正念接地练习")
+    print("  reset         - 重置所有数据（清除所有历史记录）")
+    print("  help          - 显示此帮助信息")
     print()
 
 def display_energy_feedback(energy_assessment: dict, energy_report: dict):
@@ -56,19 +57,26 @@ def display_energy_feedback(energy_assessment: dict, energy_report: dict):
     # 显示新成就
     new_achievements = energy_assessment.get("new_achievements", [])
     if new_achievements:
-        print(Fore.GREEN + "   新成就解锁!")
+        print(Fore.GREEN + "\n  *** 新成就解锁!")
         for achievement in new_achievements:
-            print(f"    {achievement['name']}: {achievement['description']}")
+            name = achievement.get('name', '未知成就')
+            description = achievement.get('description', '')
+            reward = achievement.get('reward', 0)
+            print(Fore.GREEN + f"    {name}")
+            print(f"    {description} (+{reward}点能量)")
 
     # 显示当前等级
     if energy_report:
         level = energy_report.get("current_level", {})
         progress = energy_report.get("level_progress", 0)
         total_energy = energy_report.get("total_energy", 0)
+        consecutive_days = energy_report.get("consecutive_days", 0)
 
-        print(f"   当前等级: {level.get('name', '未知')}")
-        print(f"   总能量: {total_energy} 点")
-        print(f"   等级进度: {progress:.1f}%")
+        print(f"\n  当前等级: {level.get('name', '未知')}")
+        print(f"  总能量: {total_energy} 点")
+        print(f"  等级进度: {progress:.1f}%")
+        if consecutive_days > 0:
+            print(f"  连续对话: {consecutive_days} 天")
 
     print(Style.RESET_ALL)
 
@@ -135,14 +143,81 @@ def main():
                 print(f"  总能量: {report['total_energy']} 点")
                 print(f"  当前等级: {report['current_level']['name']}")
                 print(f"  等级进度: {report['level_progress']:.1f}%")
+                print(f"  连续对话: {report.get('consecutive_days', 0)} 天")
 
                 print("  维度得分:")
                 for dim, score in report['dimension_scores'].items():
                     print(f"    {dim}: {score} 点")
 
-                if report['achievements']:
-                    print(f"  成就数量: {len(report['achievements'])}")
+                achievement_stats = report.get('achievement_stats', {})
+                if achievement_stats:
+                    print(f"  成就进度: {achievement_stats['unlocked_achievements']}/{achievement_stats['total_achievements']} ({achievement_stats['completion_rate']}%)")
                 print()
+
+            elif user_input.lower() == 'achievements':
+                # 显示成就系统
+                achievement_stats = agent.energy_model.get_achievement_stats()
+                categorized = agent.energy_model.get_achievements_by_category()
+                
+                print(Fore.CYAN + "\n" + "=" * 60)
+                print(Fore.YELLOW + " 成就系统")
+                print(Fore.CYAN + "=" * 60)
+                
+                # 总体统计
+                print(Fore.GREEN + f"\n 总体进度: {achievement_stats['unlocked_achievements']}/{achievement_stats['total_achievements']} ({achievement_stats['completion_rate']}%)")
+                
+                # 计数器统计
+                counters = achievement_stats['counters']
+                print(Fore.BLUE + "\n 当前进度:")
+                print(f"  正念练习: {counters['mindfulness_count']} 次")
+                print(f"  认知重构: {counters['cognitive_restructure_count']} 次")
+                print(f"  行为激活: {counters['behavioral_activation_count']} 次")
+                print(f"  连续对话: {counters['consecutive_days']} 天")
+                print(f"  积极情绪: {counters['positive_emotion_count']} 次")
+                print(f"  克服危机: {counters['crisis_overcome_count']} 次")
+                print(f"  高质量对话: {counters['high_quality_session_count']} 次")
+                
+                # 按类别显示成就
+                print(Fore.YELLOW + "\n 成就列表（按类别）:")
+                category_order = ["基础", "认知", "情绪", "行为", "正念", "社交", "效能", "韧性", "里程碑", "质量", "特殊"]
+                
+                for category in category_order:
+                    if category not in categorized:
+                        continue
+                    
+                    achievements = categorized[category]
+                    category_stat = achievement_stats['category_stats'].get(category, {})
+                    unlocked = category_stat.get('unlocked', 0)
+                    total = category_stat.get('total', 0)
+                    
+                    print(Fore.CYAN + f"\n [{category}] {unlocked}/{total}")
+                    
+                    # 按解锁状态排序：已解锁的在前
+                    achievements.sort(key=lambda x: (not x['unlocked'], x['threshold']))
+                    
+                    for ach in achievements:
+                        if ach['unlocked']:
+                            # 已解锁：绿色显示
+                            print(Fore.GREEN + f"  ✓ {ach['name']}")
+                            print(f"    {ach['description']} (+{ach['reward']}点)")
+                        else:
+                            # 未解锁：显示进度
+                            progress = ach.get('progress', {})
+                            current = progress.get('current', 0)
+                            threshold = progress.get('threshold', 0)
+                            percentage = progress.get('percentage', 0)
+                            print(Fore.WHITE + f"  ○ {ach['name']}")
+                            print(f"    {ach['description']} (+{ach['reward']}点)")
+                            print(Fore.YELLOW + f"    进度: {current}/{threshold} ({percentage:.1f}%)")
+                
+                # 最近解锁的成就
+                recent = achievement_stats.get('recent_achievements', [])
+                if recent:
+                    print(Fore.MAGENTA + "\n 最近解锁:")
+                    for ach in recent[:5]:
+                        print(f"  * {ach['name']} - {ach['description']}")
+                
+                print(Fore.CYAN + "\n" + "=" * 60 + "\n")
 
             elif user_input.lower() == 'progress':
                 report = agent.get_comprehensive_report()
@@ -158,15 +233,40 @@ def main():
                 # 危机报告
                 crisis = report['crisis_report']
                 print(f"  危机事件: {crisis['total_crises']} 次")
-                if crisis['recent_crises_count'] > 0:
-                    print(f"  近期危机: {crisis['recent_crises_count']} 次")
+                recent_count = crisis.get('recent_crises_count', 0)
+                if recent_count > 0:
+                    print(f"  近期危机: {recent_count} 次")
 
                 print(f"  总会话数: {report['session_count']} 次")
                 print()
 
             elif user_input.lower() == 'grounding':
-                exercise = agent.get_grounding_exercise() # TODO 需要完善正念练习
+                # 获取正念接地练习并记录为正念练习
+                exercise = agent.get_grounding_exercise()
                 print(Fore.CYAN + "\n" + exercise + "\n")
+                
+                # 模拟一次正念练习对话，触发成就计数
+                conversation_data = {
+                    "user_message": "我进行了正念接地练习",
+                    "analysis": {
+                        "emotional_state": {"primary": "calm", "severity": 2},
+                        "cognitive_distortions": [],
+                        "recommended_technique": "MINDFULNESS"
+                    },
+                    "cbt_response": "很好的正念练习！"
+                }
+                
+                # 评估并更新能量
+                energy_result = agent.energy_model.assess_conversation_quality(conversation_data)
+                
+                # 显示能量反馈
+                if Config.ENERGY_FEEDBACK_ENABLED and energy_result:
+                    energy_report = agent.energy_model.get_energy_report()
+                    display_energy_feedback(energy_result, energy_report)
+                
+                # 自动保存进度
+                if Config.AUTO_SAVE_PROGRESS:
+                    agent.energy_model.save_progress()
 
             elif user_input.lower() == 'reset':
                 # 确认重置操作
