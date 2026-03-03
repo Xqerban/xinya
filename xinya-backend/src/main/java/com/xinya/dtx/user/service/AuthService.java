@@ -1,8 +1,8 @@
 package com.xinya.dtx.user.service;
 
-import com.xinya.dtx.common.response.LoginResponse;
-import com.xinya.dtx.common.response.RegisterUserRequest;
-import com.xinya.dtx.common.response.UserDto;
+import com.xinya.dtx.user.dto.LoginResponse;
+import com.xinya.dtx.user.dto.RegisterUserRequest;
+import com.xinya.dtx.user.dto.UserDto;
 
 /**
  * 认证与用户管理服务

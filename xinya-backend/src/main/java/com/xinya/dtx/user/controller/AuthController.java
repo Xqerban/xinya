@@ -1,6 +1,7 @@
 package com.xinya.dtx.user.controller;
 
 import com.xinya.dtx.common.response.*;
+import com.xinya.dtx.user.dto.*;
 import com.xinya.dtx.user.service.AuthService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;

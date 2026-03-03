@@ -1,8 +1,8 @@
 package com.xinya.dtx.user.service.impl;
 
-import com.xinya.dtx.common.response.LoginResponse;
-import com.xinya.dtx.common.response.RegisterUserRequest;
-import com.xinya.dtx.common.response.UserDto;
+import com.xinya.dtx.user.dto.LoginResponse;
+import com.xinya.dtx.user.dto.RegisterUserRequest;
+import com.xinya.dtx.user.dto.UserDto;
 import com.xinya.dtx.user.entity.User;
 import com.xinya.dtx.user.mapper.UserMapper;
 import com.xinya.dtx.user.service.AuthService;
