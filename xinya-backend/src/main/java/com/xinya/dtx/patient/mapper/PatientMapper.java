@@ -1,6 +1,6 @@
-package com.xinya.dtx.system.mapper;
+package com.xinya.dtx.patient.mapper;
 
-import com.xinya.dtx.system.entity.Patient;
+import com.xinya.dtx.patient.entity.Patient;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
