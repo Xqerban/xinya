@@ -1,4 +1,4 @@
-package com.xinya.dtx.system.entity;
+package com.xinya.dtx.clinical.entity;
 
 import jakarta.persistence.*;
 import lombok.*;

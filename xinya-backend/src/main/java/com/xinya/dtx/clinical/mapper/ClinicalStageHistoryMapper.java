@@ -1,6 +1,6 @@
-package com.xinya.dtx.system.mapper;
+package com.xinya.dtx.clinical.mapper;
 
-import com.xinya.dtx.system.entity.ClinicalStageHistory;
+import com.xinya.dtx.clinical.entity.ClinicalStageHistory;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
