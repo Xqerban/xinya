@@ -23,5 +23,15 @@ public interface AuthService {
      * 创建医护/运维用户（注册）
      */
     UserDto register(RegisterUserRequest request);
+
+    /**
+     * 刷新 Token（使用 refreshToken 换取新的 access token）
+     */
+    LoginResponse refresh(String refreshToken);
+
+    /**
+     * 退出登录（服务端维度主要是让 refreshToken 失效）
+     */
+    void logout(String accessToken);
 }
 

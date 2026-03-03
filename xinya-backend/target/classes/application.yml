@@ -52,3 +52,11 @@ xinya:
     api-key: ${AI_API_KEY:demo-key}
     model: deepseek
     timeout: 30000
+
+  auth:
+    # JWT 密钥，生产环境请通过环境变量 JWT_SECRET 配置为足够复杂的随机串
+    jwt-secret: ${JWT_SECRET:dev-secret-change-me}
+    # accessToken 默认 15 分钟
+    access-token-exp-seconds: 900
+    # refreshToken 默认 7 天
+    refresh-token-exp-seconds: 604800

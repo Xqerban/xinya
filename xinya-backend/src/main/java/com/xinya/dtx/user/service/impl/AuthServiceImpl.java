@@ -1,5 +1,7 @@
 package com.xinya.dtx.user.service.impl;
 
+import com.auth0.jwt.interfaces.DecodedJWT;
+import com.xinya.dtx.common.security.JwtUtil;
 import com.xinya.dtx.user.dto.LoginResponse;
 import com.xinya.dtx.user.dto.RegisterUserRequest;
 import com.xinya.dtx.user.dto.UserDto;
@@ -22,13 +24,9 @@ public class AuthServiceImpl implements AuthService {
 
     private static final Set<String> ALLOWED_ROLES = Set.of("NURSE", "DOCTOR", "ADMIN");
 
-    /**
-     * 令牌有效期（秒），与 API 文档保持一致 24h
-     */
-    private static final long DEFAULT_EXPIRES_IN_SECONDS = Duration.ofHours(24).getSeconds();
-
     private final UserMapper userMapper;
     private final PasswordEncoder passwordEncoder;
+    private final JwtUtil jwtUtil;
 
     @Override
     @Transactional
@@ -118,24 +116,78 @@ public class AuthServiceImpl implements AuthService {
                     .displayName(user.getDisplayName())
                     .build();
         }
+        // 登录成功，生成新的 access token 和 refresh token
+        return buildLoginResponse(user);
+    }
 
-        // 登录成功，生成访问令牌和刷新令牌
-        String token = "access-" + UUID.randomUUID();
-        String refreshToken = "refresh-" + UUID.randomUUID();
+    /**
+     * 使用 refreshToken 刷新登录态
+     */
+    @Override
+    @Transactional
+    public LoginResponse refresh(String refreshToken) {
+        if (refreshToken == null || refreshToken.isBlank()) {
+            throw new IllegalArgumentException("refreshToken 不能为空");
+        }
+        DecodedJWT jwt;
+        try {
+            jwt = jwtUtil.verifyRefreshToken(refreshToken);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("refreshToken 无效或已过期");
+        }
 
-        // 记录最后登录时间
-        userMapper.updateLastLoginAt(user.getId(), LocalDateTime.now());
+        String userId = jwt.getSubject();
+
+        User user = userMapper.findById(userId)
+                .filter(u -> Boolean.TRUE.equals(u.getEnabled()))
+                .orElseThrow(() -> new IllegalArgumentException("用户不存在或已禁用"));
+
+        // 刷新时同样更新 lastLoginAt，并下发新的 access/refresh token
+        return buildLoginResponse(user);
+    }
+
+    private LoginResponse buildLoginResponse(User user) {
+        LocalDateTime now = LocalDateTime.now();
+
+        String accessToken = jwtUtil.generateAccessToken(
+                user.getId(), user.getUsername(), user.getRole(), user.getPhone());
+        String refreshToken = jwtUtil.generateRefreshToken(
+                user.getId(), user.getUsername(), user.getRole(), user.getPhone());
+
+        user.setLastLoginAt(now);
 
         return LoginResponse.builder()
-                .token(token)
+                .token(accessToken)
                 .refreshToken(refreshToken)
-                .expiresIn(DEFAULT_EXPIRES_IN_SECONDS)
+                .expiresIn(jwtUtil.getAccessTokenExpiresInSeconds())
                 .userId(user.getId())
                 .username(user.getUsername())
                 .phone(user.getPhone())
                 .role(user.getRole())
                 .displayName(user.getDisplayName())
                 .build();
+    }
+
+    @Override
+    @Transactional
+    public void logout(String accessToken) {
+        if (accessToken == null || accessToken.isBlank()) {
+            return;
+        }
+        DecodedJWT jwt;
+        try {
+            jwt = jwtUtil.verifyAccessToken(accessToken);
+        } catch (Exception e) {
+            // token 无效时，直接返回即可，保持幂等
+            return;
+        }
+        String userId = jwt.getSubject();
+        userMapper.findById(userId).ifPresent(user -> {
+            // 对于 JWT accessToken，我们无法“收回”，这里只清空 refreshToken，
+            // 让客户端无法再用旧的 refreshToken 获取新的 accessToken。
+            user.setRefreshToken(null);
+            user.setRefreshTokenExpiresAt(null);
+        });
     }
 
     private UserDto toUserDto(User user) {

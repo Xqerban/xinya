@@ -50,4 +50,13 @@ public interface UserMapper extends JpaRepository<User, String> {
     @Modifying
     @Query("UPDATE User u SET u.enabled = :enabled WHERE u.id = :id")
     void updateEnabled(@Param("id") String id, @Param("enabled") Boolean enabled);
+
+    /** 按 refreshToken 查询用户（刷新登录态用） */
+    Optional<User> findByRefreshToken(String refreshToken);
+
+    /** 清理已过期的 refreshToken（定时任务用） */
+    @Modifying
+    @Query("UPDATE User u SET u.refreshToken = null, u.refreshTokenExpiresAt = null " +
+           "WHERE u.refreshTokenExpiresAt IS NOT NULL AND u.refreshTokenExpiresAt < :now")
+    int clearExpiredRefreshTokens(@Param("now") LocalDateTime now);
 }

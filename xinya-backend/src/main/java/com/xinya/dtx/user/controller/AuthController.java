@@ -54,5 +54,32 @@ public class AuthController {
         }
         return ApiResponse.success(response);
     }
+
+    /**
+     * 1.6 刷新 Token
+     */
+    @PostMapping("/refresh")
+    public ApiResponse<LoginResponse> refresh(@RequestBody @Valid RefreshTokenRequest request) {
+        try {
+            LoginResponse response = authService.refresh(request.getRefreshToken());
+            return ApiResponse.success(response);
+        } catch (IllegalArgumentException e) {
+            return ApiResponse.error(401, "refreshToken 无效或已过期");
+        }
+    }
+
+    /**
+     * 1.7 退出登录
+     */
+    @PostMapping("/logout")
+    public ApiResponse<Void> logout(@RequestHeader(value = "Authorization", required = false) String authorization) {
+        // Authorization: Bearer <token>
+        String accessToken = null;
+        if (authorization != null && authorization.startsWith("Bearer ")) {
+            accessToken = authorization.substring(7);
+        }
+        authService.logout(accessToken);
+        return ApiResponse.success(null);
+    }
 }
 

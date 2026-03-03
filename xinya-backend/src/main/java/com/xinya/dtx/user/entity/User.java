@@ -36,6 +36,12 @@ public class User {
     @Column(name = "phone", length = 20, unique = true)
     private String phone;
 
+    @Column(name = "refresh_token", length = 255)
+    private String refreshToken;
+
+    @Column(name = "refresh_token_expires_at")
+    private LocalDateTime refreshTokenExpiresAt;
+
     @Column(name = "enabled", nullable = false)
     @Builder.Default
     private Boolean enabled = true;
