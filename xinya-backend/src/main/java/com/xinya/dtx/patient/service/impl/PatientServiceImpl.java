@@ -17,7 +17,7 @@ import com.xinya.dtx.alerts.mapper.AlertMapper;
 import com.xinya.dtx.hopetree.mapper.HopeTreeGrowthHistoryMapper;
 import com.xinya.dtx.hopetree.mapper.HopeTreeProgressMapper;
 import com.xinya.dtx.pro.mapper.ProRecordMapper;
-import com.xinya.dtx.system.mapper.PsychEnergyLogMapper;
+import com.xinya.dtx.patient.mapper.PsychEnergyLogMapper;
 import com.xinya.dtx.patient.mapper.PatientMapper;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;

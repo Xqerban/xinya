@@ -1,6 +1,6 @@
-package com.xinya.dtx.system.mapper;
+package com.xinya.dtx.patient.mapper;
 
-import com.xinya.dtx.system.entity.PsychEnergyLog;
+import com.xinya.dtx.patient.entity.PsychEnergyLog;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;

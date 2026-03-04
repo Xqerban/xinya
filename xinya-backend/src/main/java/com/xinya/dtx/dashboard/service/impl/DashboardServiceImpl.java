@@ -22,7 +22,7 @@ import com.xinya.dtx.education.mapper.EducationProgressMapper;
 import com.xinya.dtx.hopetree.mapper.HopeTreeGrowthHistoryMapper;
 import com.xinya.dtx.hopetree.mapper.HopeTreeProgressMapper;
 import com.xinya.dtx.pro.mapper.ProRecordMapper;
-import com.xinya.dtx.system.mapper.PsychEnergyLogMapper;
+import com.xinya.dtx.patient.mapper.PsychEnergyLogMapper;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
