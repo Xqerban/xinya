@@ -2,7 +2,6 @@ package com.xinya.dtx.education.service;
 
 import com.xinya.dtx.common.response.PageResult;
 import com.xinya.dtx.education.dto.*;
-import com.xinya.dtx.system.entity.EducationContent;
 
 public interface EducationService {
 
