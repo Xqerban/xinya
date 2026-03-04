@@ -37,6 +37,15 @@ public interface EducationProgressMapper extends JpaRepository<EducationProgress
            "WHERE p.patientId = :patientId")
     int sumWatchedSecondsByPatientId(@Param("patientId") String patientId);
 
+    /** 全局平均完成率（用于驾驶舱学习统计），按记录维度近似计算 */
+    @Query("SELECT COALESCE(AVG(CASE WHEN p.completed = true THEN 1.0 ELSE 0.0 END), 0.0) " +
+           "FROM EducationProgress p")
+    Double avgCompletionRate();
+
+    /** 全局平均观看时长（秒），按记录维度近似计算 */
+    @Query("SELECT COALESCE(AVG(p.watchedSeconds), 0.0) FROM EducationProgress p")
+    Double avgWatchSeconds();
+
     /** 更新观看进度（upsert 由 Service 层先 findByPatientIdAndContentId 再 save 处理） */
     @Modifying
     @Query("UPDATE EducationProgress p SET " +
