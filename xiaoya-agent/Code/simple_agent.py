@@ -192,7 +192,8 @@ class EnhancedChatAgent:
 
     def save_history(self, filename: str = "chat_history.json"):
         """保存对话历史到文件"""
-        with open(filename, 'w', encoding='utf-8') as f:
+        filepath = self._get_filepath(filename)
+        with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(self.conversation_history, f, ensure_ascii=False, indent=2)
 
     def _generate_cbt_response(self, user_message: str, analysis: Dict) -> str:
@@ -409,9 +410,10 @@ class EnhancedChatAgent:
     def _load_user_state(self, filename: str = "user_state.json"):
         """加载用户状态（如骨髓移植分期）"""
         try:
-            if not os.path.exists(filename):
+            filepath = self._get_filepath(filename)
+            if not os.path.exists(filepath):
                 return
-            with open(filename, "r", encoding="utf-8") as f:
+            with open(filepath, "r", encoding="utf-8") as f:
                 data = json.load(f)
             if isinstance(data, dict):
                 self.user_state.update(data)
@@ -421,7 +423,8 @@ class EnhancedChatAgent:
     def _save_user_state(self, filename: str = "user_state.json"):
         """保存用户状态（如骨髓移植分期）"""
         try:
-            with open(filename, "w", encoding="utf-8") as f:
+            filepath = self._get_filepath(filename)
+            with open(filepath, "w", encoding="utf-8") as f:
                 json.dump(self.user_state, f, ensure_ascii=False, indent=2)
         except Exception as e:
             print(f"保存用户状态失败: {str(e)}")
@@ -457,7 +460,8 @@ class EnhancedChatAgent:
     def load_history(self, filename: str = "chat_history.json"):
         """从文件加载对话历史"""
         try:
-            with open(filename, 'r', encoding='utf-8') as f:
+            filepath = self._get_filepath(filename)
+            with open(filepath, 'r', encoding='utf-8') as f:
                 self.conversation_history = json.load(f)
         except FileNotFoundError:
             print(f"历史文件 {filename} 不存在")
@@ -502,8 +506,9 @@ class EnhancedChatAgent:
         deleted_files = []
         for filename in files_to_delete:
             try:
-                if os.path.exists(filename):
-                    os.remove(filename)
+                filepath = self._get_filepath(filename)
+                if os.path.exists(filepath):
+                    os.remove(filepath)
                     deleted_files.append(filename)
             except Exception as e:
                 print(f"删除文件 {filename} 失败: {str(e)}")
@@ -513,3 +518,7 @@ class EnhancedChatAgent:
             "deleted_files": deleted_files,
             "message": "所有数据已重置，系统已恢复到初始状态"
         }
+    def _get_filepath(self, filename: str) -> str:
+        """获取文件的完整路径（统一放在 Code 目录下）"""
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        return os.path.join(script_dir, filename)
