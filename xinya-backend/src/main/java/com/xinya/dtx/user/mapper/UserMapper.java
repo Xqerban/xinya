@@ -51,6 +51,17 @@ public interface UserMapper extends JpaRepository<User, String> {
     @Query("UPDATE User u SET u.enabled = :enabled WHERE u.id = :id")
     void updateEnabled(@Param("id") String id, @Param("enabled") Boolean enabled);
 
+    /** 注销用户：禁用账号并清空 refreshToken，返回受影响行数 */
+    @Modifying
+    @Query("UPDATE User u SET u.enabled = false, u.refreshToken = null, u.refreshTokenExpiresAt = null " +
+           "WHERE u.id = :id")
+    int deactivateUser(@Param("id") String id);
+
+    /** 硬删除用户，返回受影响行数 */
+    @Modifying
+    @Query("DELETE FROM User u WHERE u.id = :id")
+    int hardDeleteById(@Param("id") String id);
+
     /** 按 refreshToken 查询用户（刷新登录态用） */
     Optional<User> findByRefreshToken(String refreshToken);
 

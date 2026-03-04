@@ -33,5 +33,15 @@ public interface AuthService {
      * 退出登录（服务端维度主要是让 refreshToken 失效）
      */
     void logout(String accessToken);
+
+    /**
+     * 当前登录用户注销账号（逻辑停用），返回是否成功更新
+     */
+    boolean deactivateCurrentUser(String accessToken);
+
+    /**
+     * 当前登录用户删除账号（物理删除），返回是否成功删除
+     */
+    boolean deleteCurrentUser(String accessToken);
 }
 

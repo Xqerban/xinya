@@ -73,13 +73,43 @@ public class AuthController {
      */
     @PostMapping("/logout")
     public ApiResponse<Void> logout(@RequestHeader(value = "Authorization", required = false) String authorization) {
-        // Authorization: Bearer <token>
-        String accessToken = null;
-        if (authorization != null && authorization.startsWith("Bearer ")) {
-            accessToken = authorization.substring(7);
-        }
+        String accessToken = extractToken(authorization);
         authService.logout(accessToken);
         return ApiResponse.success(null);
+    }
+
+    /**
+     * 用户自助注销账号（逻辑停用）
+     */
+    @PostMapping("/deactivate")
+    public ApiResponse<Void> deactivate(@RequestHeader(value = "Authorization", required = false) String authorization) {
+        String accessToken = extractToken(authorization);
+        boolean ok = authService.deactivateCurrentUser(accessToken);
+        if (!ok) {
+            return ApiResponse.error(401, "注销失败：token 无效或用户不存在");
+        }
+        return ApiResponse.success("账号已注销", null);
+    }
+
+    /**
+     * 用户自助删除账号（物理删除）
+     */
+    @DeleteMapping("/account")
+    public ApiResponse<Void> deleteAccount(@RequestHeader(value = "Authorization", required = false) String authorization) {
+        String accessToken = extractToken(authorization);
+        boolean ok = authService.deleteCurrentUser(accessToken);
+        if (!ok) {
+            return ApiResponse.error(401, "删除失败：token 无效或用户不存在");
+        }
+        return ApiResponse.success("账号已删除", null);
+    }
+
+    private String extractToken(String authorization) {
+        // Authorization: Bearer <token>
+        if (authorization != null && authorization.startsWith("Bearer ")) {
+            return authorization.substring(7);
+        }
+        return null;
     }
 }
 

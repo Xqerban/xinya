@@ -190,6 +190,42 @@ public class AuthServiceImpl implements AuthService {
         });
     }
 
+    @Override
+    @Transactional
+    public boolean deactivateCurrentUser(String accessToken) {
+        if (accessToken == null || accessToken.isBlank()) {
+            return false;
+        }
+        DecodedJWT jwt;
+        try {
+            jwt = jwtUtil.verifyAccessToken(accessToken);
+        } catch (Exception e) {
+            // token 无效时，直接返回，保持幂等
+            return false;
+        }
+        String userId = jwt.getSubject();
+        int affected = userMapper.deactivateUser(userId);
+        return affected > 0;
+    }
+
+    @Override
+    @Transactional
+    public boolean deleteCurrentUser(String accessToken) {
+        if (accessToken == null || accessToken.isBlank()) {
+            return false;
+        }
+        DecodedJWT jwt;
+        try {
+            jwt = jwtUtil.verifyAccessToken(accessToken);
+        } catch (Exception e) {
+            // token 无效时，直接返回，保持幂等
+            return false;
+        }
+        String userId = jwt.getSubject();
+        int affected = userMapper.hardDeleteById(userId);
+        return affected > 0;
+    }
+
     private UserDto toUserDto(User user) {
         return UserDto.builder()
                 .id(user.getId())
