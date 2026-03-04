@@ -298,15 +298,22 @@ class CrisisInterventionModule:
 
     def save_crisis_history(self, filename: str = "crisis_history.json"):
         """保存危机历史"""
-        with open(filename, 'w', encoding='utf-8') as f:
+        filepath = self._get_filepath(filename)
+        with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(self.crisis_history, f, ensure_ascii=False, indent=2)
 
     def load_crisis_history(self, filename: str = "crisis_history.json"):
         """加载危机历史"""
         try:
-            with open(filename, 'r', encoding='utf-8') as f:
+            filepath = self._get_filepath(filename)
+            with open(filepath, 'r', encoding='utf-8') as f:
                 self.crisis_history = json.load(f)
         except FileNotFoundError:
             pass
         except Exception as e:
             print(f"加载危机历史失败: {str(e)}")
+    def _get_filepath(self, filename: str) -> str:
+        """获取文件的完整路径（统一放在 Code 目录下）"""
+        import os
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        return os.path.join(script_dir, filename)

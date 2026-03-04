@@ -958,13 +958,15 @@ class PsychologicalEnergyModel:
         # 序列化数据以确保所有对象都能被JSON序列化
         serialized_data = self._serialize_data(data)
 
-        with open(filename, 'w', encoding='utf-8') as f:
+        filepath = self._get_filepath(filename)
+        with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(serialized_data, f, ensure_ascii=False, indent=2)
 
     def load_progress(self, filename: str = "energy_progress.json"):
         """加载能量进度"""
         try:
-            with open(filename, 'r', encoding='utf-8') as f:
+            filepath = self._get_filepath(filename)
+            with open(filepath, 'r', encoding='utf-8') as f:
                 data = json.load(f)
 
             self.total_energy = data.get("total_energy", 0)
@@ -991,3 +993,8 @@ class PsychologicalEnergyModel:
             print(f"进度文件 {filename} 不存在，将创建新进度")
         except Exception as e:
             print(f"加载进度文件失败: {str(e)}")
+    def _get_filepath(self, filename: str) -> str:
+        """获取文件的完整路径（统一放在 Code 目录下）"""
+        import os
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        return os.path.join(script_dir, filename)
