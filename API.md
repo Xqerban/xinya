@@ -103,8 +103,8 @@
 | 枚举值 | 中文名 | 说明 |
 |---|---|---|
 | `PATIENT` | 患者 | 机器人端，只能访问自己的数据 |
-| `NURSE` | 护士 | PAD端，管理所在病区患者 |
-| `DOCTOR` | 医生 | PAD端，查看所有数据 |
+| `NURSE` | 护士 | 医护端，管理所在病区患者 |
+| `DOCTOR` | 医生 | 医护端，查看所有数据 |
 | `ADMIN` | 管理员 | 运维Web端，全量权限 |
 
 ### AlertLevel（预警级别枚举）
@@ -164,13 +164,48 @@
 
 ---
 
+### 1.0 创建医护/运维用户（注册）
+
+```
+POST /api/auth/register
+```
+
+**适用端：** Web运维端  
+**权限：** `ADMIN`
+
+> 用于为护士、医生、管理员创建账号；手机号用于登录和找回账号，需唯一。
+
+**请求体：**
+
+```json
+{
+  "username": "nurse_01",
+  "password": "Xinya@2026",
+  "displayName": "李护士",
+  "role": "NURSE",
+  "phone": "13800000001"
+}
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `username` | String | ✅ | 登录用户名，系统内唯一 |
+| `password` | String | ✅ | 登录密码（明文传输，HTTPS 保障） |
+| `displayName` | String | ✅ | 展示姓名 |
+| `role` | String | ✅ | `NURSE` / `DOCTOR` / `ADMIN` |
+| `phone` | String | ✅ | 手机号，医护/运维登录用，系统内唯一 |
+
+**响应：** `ApiResponse<UserDto>`
+
+---
+
 ### 1.1 用户登录
 
 ```
 POST /api/auth/login
 ```
 
-**适用端：** PAD端、Web运维端
+**适用端：** 医护端、Web运维端
 
 **请求体：**
 
@@ -197,6 +232,7 @@ POST /api/auth/login
     "expiresIn": 86400,
     "userId": "u-001",
     "username": "nurse_01",
+    "phone": "13800000001",
     "role": "NURSE",
     "displayName": "李护士"
   }
@@ -205,7 +241,38 @@ POST /api/auth/login
 
 ---
 
-### 1.2 机器人端鉴权（患者绑定）
+### 1.2 手机号登录
+
+```
+POST /api/auth/login/phone
+```
+
+**适用端：** 医护端、Web运维端
+
+> 与用户名登录等价，只是将登录标识从 `username` 换为 `phone`。  
+> 当同一个人同时配置了用户名和手机号时，两种方式都可以登录。
+
+**请求体：**
+
+```json
+{
+  "phone": "13800000001",
+  "password": "Xinya@2026"
+}
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `phone` | String | ✅ | 手机号（医护/运维唯一） |
+| `password` | String | ✅ | 密码 |
+
+**响应：** `ApiResponse<LoginResponse>`（结构同用户名登录）
+
+> 登录成功后，前端不需要关心是通过用户名还是手机号登录，只关心返回的 `token`、`role` 等信息。
+
+---
+
+### 1.3 机器人端鉴权（患者绑定）
 
 ```
 POST /api/auth/robot/bind
@@ -227,7 +294,7 @@ POST /api/auth/robot/bind
 |---|---|---|---|
 | `deviceId` | String | ✅ | 机器人设备序列号 |
 | `patientId` | String | ✅ | 要绑定的患者 ID |
-| `bindCode` | String | ✅ | 护士在 PAD 端生成的 6 位绑定码 |
+| `bindCode` | String | ✅ | 护士在 医护 端生成的 6 位绑定码 |
 
 **响应：** `ApiResponse<RobotAuthResponse>`
 
@@ -247,13 +314,13 @@ POST /api/auth/robot/bind
 
 ---
 
-### 1.3 生成机器人绑定码
+### 1.4 生成机器人绑定码
 
 ```
 POST /api/auth/robot/bind-code
 ```
 
-**适用端：** PAD端（护士操作）
+**适用端：** 医护端（护士操作）
 
 **请求体：**
 
@@ -279,7 +346,51 @@ POST /api/auth/robot/bind-code
 
 ---
 
-### 1.4 刷新 Token
+### 1.5 机器人解绑患者
+
+```
+POST /api/auth/robot/unbind
+```
+
+**适用端：** 医护端  
+
+> 用于在患者出仓、更换病房或设备迁移时，将机器人与当前患者解绑。  
+> 解绑后：  
+> - 机器人不再持有关联 `patientId`；  
+> - 原有 `deviceToken` 立即失效，后续请求需要重新绑定。
+
+**请求体：**
+
+```json
+{
+  "deviceId": "ROBOT-DEVICE-SN-001",
+  "patientId": "p-001"
+}
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `deviceId` | String | ✅ | 机器人设备序列号 |
+| `patientId` | String | ❌ | 当前绑定的患者 ID，用于安全校验，医护 端可不传 |
+
+**响应：**
+
+```json
+{
+  "code": 200,
+  "message": "解绑成功",
+  "data": {
+    "deviceId": "ROBOT-DEVICE-SN-001",
+    "unbound": true
+  }
+}
+```
+
+> 若设备当前未绑定任何患者，返回 `unbound: false`，但仍视为成功（幂等）。
+
+---
+
+### 1.6 刷新 Token
 
 ```
 POST /api/auth/refresh
@@ -297,7 +408,7 @@ POST /api/auth/refresh
 
 ---
 
-### 1.5 退出登录
+### 1.7 退出登录
 
 ```
 POST /api/auth/logout
@@ -305,6 +416,58 @@ POST /api/auth/logout
 
 **请求头：** `Authorization: Bearer <token>`  
 **响应：** `ApiResponse<null>`，`message: "已退出登录"`
+
+---
+
+### 1.8 用户自助注销账号（逻辑停用）
+
+```
+POST /api/auth/deactivate
+```
+
+**适用端：** 医护端、Web运维端  
+**说明：** 当前登录用户将自己的账号标记为“已注销”，之后无法再登录，历史业务数据仍然保留。  
+
+**请求头：** `Authorization: Bearer <token>`  
+
+**响应：**
+
+```json
+{
+  "code": 200,
+  "data": null,
+  "message": "账号已注销"
+}
+```
+
+> 注销后，如果再次尝试登录，将返回“账号已禁用”提示。
+
+---
+
+### 1.9 用户自助删除账号（物理删除）
+
+> 是否真正开放给正式用户由产品和合规决定，这里提供接口形状，默认仅测试环境使用。
+
+```
+DELETE /api/auth/account
+```
+
+**适用端：** 医护端、Web运维端  
+**说明：** 当前登录用户彻底删除账号记录。  
+
+**请求头：** `Authorization: Bearer <token>`  
+
+**响应：**
+
+```json
+{
+  "code": 200,
+  "data": null,
+  "message": "账号已删除"
+}
+```
+
+> 若服务端判定该账号已有关键业务数据，可返回 `code=400`，提示“账号已有业务记录，请联系管理员注销账号而非删除”。
 
 ---
 
@@ -320,7 +483,7 @@ POST /api/auth/logout
 POST /api/patients
 ```
 
-**适用端：** PAD端（护士/医生）  
+**适用端：** 医护端（护士/医生）  
 **权限：** `NURSE` / `DOCTOR` / `ADMIN`
 
 **请求体：**
@@ -357,7 +520,7 @@ POST /api/patients
 GET /api/patients/{id}
 ```
 
-**适用端：** 机器人端、PAD端、Web端  
+**适用端：** 机器人端、医护端、Web端  
 **权限：** 患者只能查自己；护士/医生/管理员可查所有
 
 | 参数 | 位置 | 类型 | 说明 |
@@ -374,7 +537,7 @@ GET /api/patients/{id}
 GET /api/patients?page=1&pageSize=20&stage=TRANSPLANT&keyword=张
 ```
 
-**适用端：** PAD端、Web端  
+**适用端：** 医护端、Web端  
 **权限：** `NURSE` / `DOCTOR` / `ADMIN`
 
 | 参数 | 位置 | 类型 | 必填 | 默认值 | 说明 |
@@ -394,7 +557,7 @@ GET /api/patients?page=1&pageSize=20&stage=TRANSPLANT&keyword=张
 PUT /api/patients/{id}
 ```
 
-**适用端：** PAD端  
+**适用端：** 医护端  
 **权限：** `NURSE` / `DOCTOR` / `ADMIN`
 
 **请求体：**
@@ -434,7 +597,7 @@ DELETE /api/patients/{id}
 GET /api/patients/{id}/energy-trend?days=14
 ```
 
-**适用端：** PAD端、Web端
+**适用端：** 医护端、Web端
 
 | 参数 | 位置 | 类型 | 必填 | 默认值 | 说明 |
 |---|---|---|---|---|---|
@@ -468,7 +631,7 @@ GET /api/patients/{id}/energy-trend?days=14
 GET /api/patients/{id}/detail
 ```
 
-**适用端：** PAD端（患者详情页一次性加载）
+**适用端：** 医护端（患者详情页一次性加载）
 
 **响应：**
 
@@ -499,7 +662,7 @@ GET /api/patients/{id}/detail
 GET /api/clinical/stage/{patientId}
 ```
 
-**适用端：** 机器人端、PAD端
+**适用端：** 机器人端、医护端
 
 | 参数 | 位置 | 类型 | 说明 |
 |---|---|---|---|
@@ -528,7 +691,7 @@ GET /api/clinical/stage/{patientId}
 POST /api/clinical/transition
 ```
 
-**适用端：** PAD端  
+**适用端：** 医护端  
 **权限：** `NURSE` / `DOCTOR`
 
 **请求体：**
@@ -559,7 +722,7 @@ POST /api/clinical/transition
 GET /api/clinical/history/{patientId}
 ```
 
-**适用端：** PAD端、Web端
+**适用端：** 医护端、Web端
 
 **响应：**
 
@@ -685,7 +848,7 @@ GET /api/agent/recommendations?patientId=p-001&agentType=psych
 GET /api/agent/history?patientId=p-001&agentType=psych&page=1&pageSize=20
 ```
 
-**适用端：** 机器人端（历史记录页）、PAD端（查看患者对话）
+**适用端：** 机器人端（历史记录页）、医护端（查看患者对话）
 
 | 参数 | 位置 | 类型 | 必填 | 默认值 | 说明 |
 |---|---|---|---|---|---|
@@ -1506,7 +1669,7 @@ POST /api/pro/submit
 GET /api/pro/history?patientId=p-001&startDate=2026-02-01&endDate=2026-03-02&page=1&pageSize=30
 ```
 
-**适用端：** PAD端、机器人端（历史记录）
+**适用端：** 医护端、机器人端（历史记录）
 
 | 参数 | 位置 | 类型 | 必填 | 说明 |
 |---|---|---|---|---|
@@ -1546,7 +1709,7 @@ GET /api/pro/history?patientId=p-001&startDate=2026-02-01&endDate=2026-03-02&pag
 GET /api/pro/symptom-trend?patientId=p-001&questionId=q_nausea&days=14
 ```
 
-**适用端：** PAD端（症状走势图）
+**适用端：** 医护端（症状走势图）
 
 **响应：**
 
@@ -1584,7 +1747,7 @@ GET /api/pro/symptom-trend?patientId=p-001&questionId=q_nausea&days=14
 GET /api/hopetree/{patientId}
 ```
 
-**适用端：** 机器人端、PAD端
+**适用端：** 机器人端、医护端
 
 | 参数 | 位置 | 类型 | 说明 |
 |---|---|---|---|
@@ -1659,7 +1822,7 @@ POST /api/hopetree/grow
 GET /api/hopetree/{patientId}/history?page=1&pageSize=20
 ```
 
-**适用端：** 机器人端（成长日记）、PAD端
+**适用端：** 机器人端（成长日记）、医护端
 
 **响应：** `ApiResponse<PageResult<GrowthHistoryItem>>`
 
@@ -1698,7 +1861,7 @@ GET /api/hopetree/{patientId}/history?page=1&pageSize=20
 GET /api/education/contents?stage=PRETREATMENT&contentType=video&page=1&pageSize=20
 ```
 
-**适用端：** 机器人端、PAD端、Web端
+**适用端：** 机器人端、医护端、Web端
 
 | 参数 | 位置 | 类型 | 必填 | 默认值 | 说明 |
 |---|---|---|---|---|---|
@@ -1744,7 +1907,7 @@ GET /api/education/contents?stage=PRETREATMENT&contentType=video&page=1&pageSize
 GET /api/education/contents/{id}
 ```
 
-**适用端：** 机器人端、PAD端
+**适用端：** 机器人端、医护端
 
 **响应：** `ApiResponse<EducationContentDetailDto>`（含完整正文）
 
@@ -1799,7 +1962,7 @@ POST /api/education/progress
 GET /api/education/progress/{patientId}
 ```
 
-**适用端：** PAD端、机器人端
+**适用端：** 医护端、机器人端
 
 **响应：**
 
@@ -1891,7 +2054,7 @@ DELETE /api/education/contents/{id}
 GET /api/dashboard/overview
 ```
 
-**适用端：** PAD端、Web端  
+**适用端：** 医护端、Web端  
 **权限：** `NURSE` / `DOCTOR` / `ADMIN`
 
 **响应：** `ApiResponse<DashboardDto>`
@@ -1949,7 +2112,7 @@ GET /api/dashboard/overview
 GET /api/dashboard/psych-distribution
 ```
 
-**适用端：** PAD端、Web端
+**适用端：** 医护端、Web端
 
 **响应：**
 
@@ -2003,7 +2166,7 @@ GET /api/dashboard/symptom-heatmap?days=7
 GET /api/dashboard/patient-report/{patientId}
 ```
 
-**适用端：** Web端、PAD端  
+**适用端：** Web端、医护端  
 **权限：** `DOCTOR` / `ADMIN`
 
 **响应：**
@@ -2055,7 +2218,7 @@ GET /api/dashboard/patient-report/{patientId}
 GET /api/alerts?resolved=false&level=warning&page=1&pageSize=20
 ```
 
-**适用端：** PAD端、Web端  
+**适用端：** 医护端、Web端  
 **权限：** `NURSE` / `DOCTOR` / `ADMIN`
 
 | 参数 | 位置 | 类型 | 必填 | 说明 |
@@ -2102,7 +2265,7 @@ GET /api/alerts?resolved=false&level=warning&page=1&pageSize=20
 PUT /api/alerts/{id}/resolve
 ```
 
-**适用端：** PAD端  
+**适用端：** 医护端  
 **权限：** `NURSE` / `DOCTOR`
 
 **请求体：**
@@ -2123,7 +2286,7 @@ PUT /api/alerts/{id}/resolve
 POST /api/alerts
 ```
 
-**适用端：** PAD端  
+**适用端：** 医护端  
 **权限：** `NURSE` / `DOCTOR`
 
 **请求体：**
@@ -2230,7 +2393,7 @@ POST /api/robot/heartbeat
 GET /api/robot/devices?patientId=p-001
 ```
 
-**适用端：** PAD端、Web端
+**适用端：** 医护端、Web端
 
 **响应：**
 
@@ -2432,21 +2595,77 @@ POST /api/admin/users
 
 ---
 
-### 12.3 用户管理 - 重置密码
+### 12.3 用户管理 - 修改 / 注销 / 删除用户
+
+#### 12.3.1 修改用户
 
 ```
-PUT /api/admin/users/{id}/reset-password
+PUT /api/admin/users/{id}
 ```
+
+**说明：** 修改医护 / 运维账号的基本信息（展示名、角色、手机号、启用状态）。  
 
 **请求体：**
 
 ```json
 {
-  "newPassword": "NewPassword@123"
+  "displayName": "王医生（夜班）",
+  "role": "DOCTOR",
+  "phone": "13800000002",
+  "enabled": true
 }
 ```
 
-**响应：** `ApiResponse<null>`
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `displayName` | String | ✅ | 展示名 |
+| `role` | String | ✅ | `NURSE` / `DOCTOR` / `ADMIN` |
+| `phone` | String | ❌ | 手机号，若不为空需在全局唯一 |
+| `enabled` | Boolean | ❌ | 是否启用；为空则不修改 |
+
+**响应：** `ApiResponse<UserDto>`
+
+---
+
+#### 12.3.2 注销用户（逻辑停用）
+
+```
+POST /api/admin/users/{id}/deactivate
+```
+
+**说明：** 管理员将指定账号标记为“已注销”，后续该用户无法再登录，但历史业务数据和审计日志仍然保留。  
+
+**响应：**
+
+```json
+{
+  "code": 200,
+  "data": null,
+  "message": "用户已注销"
+}
+```
+
+---
+
+#### 12.3.3 删除用户（物理删除）
+
+```
+DELETE /api/admin/users/{id}
+```
+
+**说明：** 物理删除用户记录，一般只用于测试账号或尚无关键业务数据的账号。  
+
+**响应：**
+
+```json
+{
+  "code": 200,
+  "data": null,
+  "message": "用户已删除"
+}
+```
+
+> 若后端判定该用户已有重要业务数据，可返回 `code=400` 并提示“该用户已有业务记录，请先选择注销而非删除”。
 
 ---
 
@@ -2506,7 +2725,7 @@ GET /api/admin/audit-logs?userId=u-001&action=STAGE_TRANSITION&startDate=2026-03
 | 上报传感器数据 | POST | `/api/robot/data` | ✅ |
 | **离线批量同步** | **POST** | **`/api/sync/batch`** | ❌ **后端待实现** |
 
-### 医护端（PAD端）
+### 医护端（医护端）
 
 | 功能 | 方法 | 路径 | 状态 |
 |---|---|---|---|

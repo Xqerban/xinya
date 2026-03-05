@@ -51,7 +51,7 @@ public class DashboardServiceImpl implements DashboardService {
     private final EducationService educationService;
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public DashboardDto getOverview() {
         long totalPatients = patientMapper.count();
 
@@ -100,7 +100,7 @@ public class DashboardServiceImpl implements DashboardService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public PsychDistributionDto getPsychDistribution() {
         long total = patientMapper.count();
         long warning = patientMapper.countByPsychEnergyLessThan(40);
@@ -133,7 +133,7 @@ public class DashboardServiceImpl implements DashboardService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public SymptomHeatmapDto getSymptomHeatmap(Integer days) {
         int d = days == null || days <= 0 ? 7 : days;
         LocalDate end = LocalDate.now();
@@ -178,7 +178,7 @@ public class DashboardServiceImpl implements DashboardService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public PatientReportDto getPatientReport(String patientId) {
         Patient patient = patientMapper.findById(patientId)
                 .orElseThrow(() -> new EntityNotFoundException("患者不存在"));

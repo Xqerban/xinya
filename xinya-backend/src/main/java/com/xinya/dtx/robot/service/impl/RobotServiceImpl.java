@@ -10,17 +10,15 @@ import com.xinya.dtx.robot.dto.RobotHeartbeatRequest;
 import com.xinya.dtx.robot.dto.RobotHeartbeatResponse;
 import com.xinya.dtx.robot.entity.RobotDevice;
 import com.xinya.dtx.robot.mapper.RobotDeviceMapper;
-import com.xinya.dtx.system.entity.SyncItem;
-import com.xinya.dtx.system.mapper.SyncItemMapper;
+import com.xinya.dtx.sync.entity.SyncItem;
+import com.xinya.dtx.sync.mapper.SyncItemMapper;
 import com.xinya.dtx.robot.service.RobotService;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Instant;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 
 @Service
 @RequiredArgsConstructor
@@ -91,7 +89,7 @@ public class RobotServiceImpl implements RobotService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public RobotDeviceStatusDto getDeviceStatus(String patientId) {
         return robotDeviceMapper.findByPatientId(patientId)
                 .map(this::toDto)

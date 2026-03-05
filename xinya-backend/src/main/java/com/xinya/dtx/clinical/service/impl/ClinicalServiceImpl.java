@@ -47,7 +47,7 @@ public class ClinicalServiceImpl implements ClinicalService {
     );
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public ClinicalStageInfoDto getCurrentStage(String patientId) {
         Patient patient = patientMapper.findById(patientId)
                 .orElseThrow(() -> new EntityNotFoundException("患者不存在"));
@@ -138,7 +138,7 @@ public class ClinicalServiceImpl implements ClinicalService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public List<ClinicalStageHistoryDto> listHistory(String patientId) {
         if (!patientMapper.existsById(patientId)) {
             throw new EntityNotFoundException("患者不存在");

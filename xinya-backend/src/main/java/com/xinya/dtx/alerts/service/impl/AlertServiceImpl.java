@@ -30,7 +30,7 @@ public class AlertServiceImpl implements AlertService {
     private final PatientMapper patientMapper;
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public AlertListResponse list(Boolean resolved, String level, String patientId,
                                   Integer page, Integer pageSize) {
         int p = page == null || page < 1 ? 0 : page - 1;

@@ -19,21 +19,18 @@ import com.xinya.dtx.sync.dto.SyncBatchResponse;
 import com.xinya.dtx.sync.dto.SyncResultItem;
 import com.xinya.dtx.sync.dto.SyncStatusResponse;
 import com.xinya.dtx.sync.service.SyncService;
-import com.xinya.dtx.system.entity.SyncItem;
-import com.xinya.dtx.system.mapper.SyncItemMapper;
+import com.xinya.dtx.sync.entity.SyncItem;
+import com.xinya.dtx.sync.mapper.SyncItemMapper;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Instant;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -127,7 +124,7 @@ public class SyncServiceImpl implements SyncService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public SyncStatusResponse getStatus(String patientId, String deviceId) {
         var recent = syncItemMapper.findRecentByDevice(deviceId, patientId,
                 org.springframework.data.domain.PageRequest.of(0, 1));

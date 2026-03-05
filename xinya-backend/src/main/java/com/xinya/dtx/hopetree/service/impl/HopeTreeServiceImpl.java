@@ -36,7 +36,7 @@ public class HopeTreeServiceImpl implements HopeTreeService {
     private final HopeTreeGrowthHistoryMapper hopeTreeGrowthHistoryMapper;
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public HopeTreeDto getState(String patientId) {
         if (!patientMapper.existsById(patientId)) {
             throw new EntityNotFoundException("患者不存在");
@@ -130,7 +130,7 @@ public class HopeTreeServiceImpl implements HopeTreeService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public PageResult<GrowthHistoryItemDto> getHistory(String patientId, Integer page, Integer pageSize) {
         if (!patientMapper.existsById(patientId)) {
             throw new EntityNotFoundException("患者不存在");

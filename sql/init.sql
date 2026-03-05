@@ -13,7 +13,6 @@ USE xinya_dtx;
 -- ================================================================
 
 -- ----------------------------------------------------------------
--- 1. 系统用户表（医护 / 管理员）
 -- ----------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS users (
     id              VARCHAR(36)  NOT NULL COMMENT '用户UUID',
@@ -21,12 +20,16 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash   VARCHAR(255) NOT NULL COMMENT 'BCrypt加密密码',
     display_name    VARCHAR(100) NOT NULL COMMENT '显示姓名',
     role            VARCHAR(20)  NOT NULL COMMENT '角色: NURSE|DOCTOR|ADMIN',
+    phone           VARCHAR(20)           COMMENT '手机号（医护/运维登录用，唯一）',
+    refresh_token   VARCHAR(255)          COMMENT '刷新Token',
+    refresh_token_expires_at DATETIME     COMMENT '刷新Token过期时间',
     enabled         TINYINT(1)   NOT NULL DEFAULT 1  COMMENT '是否启用',
     last_login_at   DATETIME              COMMENT '最近登录时间',
     created_at      DATETIME              COMMENT '创建时间',
     updated_at      DATETIME              COMMENT '更新时间',
     PRIMARY KEY (id),
     UNIQUE KEY uk_username (username),
+    UNIQUE KEY uk_phone (phone),
     INDEX idx_role (role)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='系统用户表（医护/管理员）';
 
@@ -447,10 +450,10 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 -- ----------------------------------------------------------------
 -- 初始管理员和医护用户（密码均为 Xinya@2026，BCrypt加密）
 -- ----------------------------------------------------------------
-INSERT IGNORE INTO users (id, username, password_hash, display_name, role, enabled, created_at, updated_at) VALUES
-('u-admin', 'admin',    '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', '系统管理员', 'ADMIN',  1, NOW(), NOW()),
-('u-001',   'nurse_01', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', '李护士',   'NURSE',  1, NOW(), NOW()),
-('u-002',   'doctor_01','$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', '王医生',   'DOCTOR', 1, NOW(), NOW());
+INSERT IGNORE INTO users (id, username, password_hash, display_name, role, phone, enabled, created_at, updated_at) VALUES
+('u-admin', 'admin',    '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', '系统管理员', 'ADMIN',  '13800000000', 1, NOW(), NOW()),
+('u-001',   'nurse_01', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', '李护士',   'NURSE',  '13800000001', 1, NOW(), NOW()),
+('u-002',   'doctor_01','$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', '王医生',   'DOCTOR', '13800000002', 1, NOW(), NOW());
 
 -- ----------------------------------------------------------------
 -- 测试患者数据
@@ -467,6 +470,18 @@ INSERT IGNORE INTO hope_tree_progress (patient_id, current_level, current_exp, t
 ('p-001', 1,  30,   30, 100,  3,  NOW()),
 ('p-002', 2,  80,  180, 250, 12,  NOW()),
 ('p-003', 3, 120,  480, 450, 28,  NOW());
+
+-- ----------------------------------------------------------------
+-- 心理能量日志示例数据（支持趋势接口 /api/patients/{id}/energy-trend 使用）
+-- ----------------------------------------------------------------
+INSERT IGNORE INTO psych_energy_log (patient_id, log_date, psych_energy, delta, trigger_type, source_ref, created_at) VALUES
+('p-001', '2026-02-24', 55,  -5, 'pro_checkin', 'pro-20260224-p001', '2026-02-24 20:00:00'),
+('p-001', '2026-02-25', 60,   5, 'pro_checkin', 'pro-20260225-p001', '2026-02-25 20:00:00'),
+('p-001', '2026-02-26', 58,  -2, 'conversation','conv-20260226-p001','2026-02-26 21:00:00'),
+('p-002', '2026-02-24', 40,  -5, 'pro_checkin', 'pro-20260224-p002', '2026-02-24 20:30:00'),
+('p-002', '2026-02-25', 45,   5, 'pro_checkin', 'pro-20260225-p002', '2026-02-25 20:30:00'),
+('p-003', '2026-02-25', 68,  -2, 'pro_checkin', 'pro-20260225-p003', '2026-02-25 19:30:00'),
+('p-003', '2026-02-26', 70,   2, 'pro_checkin', 'pro-20260226-p003', '2026-02-26 19:30:00');
 
 -- ----------------------------------------------------------------
 -- PRO 问卷题目（全阶段通用）

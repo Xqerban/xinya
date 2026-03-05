@@ -65,7 +65,7 @@ public class ProServiceImpl implements ProService {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public ProQuestionListDto getTodayQuestions(String patientId) {
         Patient patient = patientMapper.findById(patientId)
                 .orElseThrow(() -> new EntityNotFoundException("患者不存在"));
@@ -202,7 +202,7 @@ public class ProServiceImpl implements ProService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public ProHistoryPageDto getHistory(String patientId, String startDateStr, String endDateStr,
                                         Integer page, Integer pageSize) {
         if (!patientMapper.existsById(patientId)) {
@@ -282,7 +282,7 @@ public class ProServiceImpl implements ProService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public SymptomTrendResponseDto getSymptomTrend(String patientId, String questionId, Integer days) {
         if (!patientMapper.existsById(patientId)) {
             throw new EntityNotFoundException("患者不存在");

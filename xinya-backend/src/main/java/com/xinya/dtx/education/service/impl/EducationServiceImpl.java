@@ -35,7 +35,7 @@ public class EducationServiceImpl implements EducationService {
     private final HopeTreeService hopeTreeService;
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public PageResult<EducationContentDto> getContents(String stage, String category, String contentType,
                                                        String keyword, Integer page, Integer pageSize) {
         int p = page == null || page < 1 ? 0 : page - 1;
@@ -59,7 +59,7 @@ public class EducationServiceImpl implements EducationService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public EducationContentDto getContentDetail(String id) {
         EducationContent c = contentMapper.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("宣教内容不存在"));
@@ -128,7 +128,7 @@ public class EducationServiceImpl implements EducationService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public PatientProgressSummaryDto getPatientProgress(String patientId) {
         if (!patientMapper.existsById(patientId)) {
             throw new EntityNotFoundException("患者不存在");

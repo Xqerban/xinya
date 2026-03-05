@@ -79,7 +79,7 @@ public class PatientServiceImpl implements PatientService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public PatientDto getPatientById(String id) {
         Patient patient = patientMapper.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("患者不存在"));
@@ -87,7 +87,7 @@ public class PatientServiceImpl implements PatientService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public PageResult<PatientDto> listPatients(Integer page, Integer pageSize, String stage, String keyword) {
         int pageIndex = page == null || page < 1 ? 0 : page - 1;
         int size = pageSize == null || pageSize <= 0 ? 20 : pageSize;
@@ -151,7 +151,7 @@ public class PatientServiceImpl implements PatientService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public EnergyTrendResponse getEnergyTrend(String patientId, Integer days) {
         if (!patientMapper.existsById(patientId)) {
             throw new EntityNotFoundException("患者不存在");
@@ -196,7 +196,7 @@ public class PatientServiceImpl implements PatientService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public PatientDetailDto getPatientDetail(String patientId) {
         PatientDto patient = getPatientById(patientId);
 

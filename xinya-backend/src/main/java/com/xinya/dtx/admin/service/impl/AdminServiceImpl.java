@@ -1,6 +1,5 @@
 package com.xinya.dtx.admin.service.impl;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xinya.dtx.admin.dto.*;
 import com.xinya.dtx.admin.service.AdminService;
@@ -8,9 +7,9 @@ import com.xinya.dtx.common.response.PageResult;
 import com.xinya.dtx.pro.entity.ProQuestion;
 import com.xinya.dtx.pro.mapper.ProQuestionMapper;
 import com.xinya.dtx.system.entity.AuditLog;
-import com.xinya.dtx.system.entity.CrisisKeyword;
+import com.xinya.dtx.agent.entity.CrisisKeyword;
 import com.xinya.dtx.system.mapper.AuditLogMapper;
-import com.xinya.dtx.system.mapper.CrisisKeywordMapper;
+import com.xinya.dtx.agent.mapper.CrisisKeywordMapper;
 import com.xinya.dtx.user.dto.UserDto;
 import com.xinya.dtx.user.entity.User;
 import com.xinya.dtx.user.mapper.UserMapper;
@@ -45,7 +44,7 @@ public class AdminServiceImpl implements AdminService {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public PageResult<UserDto> listUsers(String role, Integer page, Integer pageSize) {
         int p = page == null || page < 1 ? 0 : page - 1;
         int size = pageSize == null || pageSize <= 0 ? 20 : pageSize;
@@ -144,7 +143,7 @@ public class AdminServiceImpl implements AdminService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public List<?> getProQuestions(String stage) {
         List<ProQuestion> questions;
         if (StringUtils.hasText(stage)) {
@@ -157,7 +156,7 @@ public class AdminServiceImpl implements AdminService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public List<CrisisKeywordDto> listCrisisKeywords() {
         return crisisKeywordMapper.findAllByOrderByCrisisLevelDescKeywordAsc().stream()
                 .map(this::toCrisisDto)
@@ -189,7 +188,7 @@ public class AdminServiceImpl implements AdminService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public PageResult<AuditLogDto> listAuditLogs(String userId, String action,
                                                  String targetType, String targetId,
                                                  String startDate, String endDate,

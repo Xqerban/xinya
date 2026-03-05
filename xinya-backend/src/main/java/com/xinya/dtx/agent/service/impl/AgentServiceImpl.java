@@ -241,7 +241,7 @@ public class AgentServiceImpl implements AgentService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public RecommendationsResponse getRecommendations(String patientId, String agentType) {
         AgentChatRequest req = new AgentChatRequest();
         req.setPatientId(patientId);
@@ -258,7 +258,7 @@ public class AgentServiceImpl implements AgentService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public PageResult<ConversationItemDto> getHistory(String patientId, String agentType, String sessionId,
                                                       Integer page, Integer pageSize) {
         if (!patientMapper.existsById(patientId)) {
