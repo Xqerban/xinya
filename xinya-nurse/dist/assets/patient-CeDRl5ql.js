@@ -1,0 +1,1 @@
+import{r as e}from"./request-BU0rs4OJ.js";function r(t){return e.get("/patients",{params:t})}function i(t){return e.get(`/patients/${t}/detail`)}function s(t){return e.post("/patients",t)}function u(t,n){return e.put(`/patients/${t}`,n)}function p(t,n=14){return e.get(`/patients/${t}/energy-trend`,{params:{days:n}})}export{i as a,p as b,s as c,r as g,u};

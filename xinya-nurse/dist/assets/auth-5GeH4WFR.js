@@ -1,0 +1,1 @@
+import{r as o}from"./request-BU0rs4OJ.js";function u(n,t){return o.post("/auth/login",{username:n,password:t})}function i(n){return o.post("/auth/robot/bind-code",{patientId:n})}function a(n,t,r){return o.post("/auth/robot/unbind",{deviceId:n,reason:t,operatorNote:r})}export{i as g,u as l,a as u};
