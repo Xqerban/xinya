@@ -29,6 +29,7 @@ import com.xinya.dtx.ui.theme.*
 @Composable
 fun EducationScreen(
     onBack: () -> Unit,
+    onContentClick: (contentId: String) -> Unit = {},
     viewModel: EducationViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -166,7 +167,10 @@ fun EducationScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(uiState.contents) { content ->
-                        EducationContentCard(content = content)
+                        EducationContentCard(
+                            content = content,
+                            onClick = { onContentClick(content.id) }
+                        )
                     }
 
                     if (uiState.contents.isEmpty()) {
@@ -191,11 +195,14 @@ fun EducationScreen(
 }
 
 @Composable
-fun EducationContentCard(content: EducationContentDto) {
+fun EducationContentCard(
+    content: EducationContentDto,
+    onClick: () -> Unit = {}
+) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { /* TODO: 跳转播放/阅读页面 */ },
+            .clickable { onClick() },
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)

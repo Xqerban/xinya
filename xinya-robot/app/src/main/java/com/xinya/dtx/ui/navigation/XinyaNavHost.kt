@@ -6,6 +6,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.xinya.dtx.feature.agent.ui.AgentScreen
+import com.xinya.dtx.feature.education.ui.EducationDetailScreen
 import com.xinya.dtx.feature.education.ui.EducationScreen
 import com.xinya.dtx.feature.home.ui.HomeScreen
 import com.xinya.dtx.feature.hopetree.ui.HopeTreeScreen
@@ -20,10 +21,12 @@ object XinyaRoutes {
     const val AGENT = "agent/{agentType}"
     const val HOPE_TREE = "hope_tree"
     const val EDUCATION = "education"
+    const val EDUCATION_DETAIL = "education/{contentId}"
     const val PRO = "pro"
     const val MEDITATION = "meditation"
     
     fun agentRoute(agentType: String) = "agent/$agentType"
+    fun educationDetailRoute(contentId: String) = "education/$contentId"
 }
 
 @Composable
@@ -70,6 +73,15 @@ fun XinyaNavHost(
         
         composable(XinyaRoutes.EDUCATION) {
             EducationScreen(
+                onBack = { navController.popBackStack() },
+                onContentClick = { contentId ->
+                    navController.navigate(XinyaRoutes.educationDetailRoute(contentId))
+                }
+            )
+        }
+
+        composable(XinyaRoutes.EDUCATION_DETAIL) {
+            EducationDetailScreen(
                 onBack = { navController.popBackStack() }
             )
         }

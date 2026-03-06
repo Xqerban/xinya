@@ -3,7 +3,7 @@ spring:
   jpa:
     hibernate:
       ddl-auto: none
-    show-sql: true
+#    show-sql: false
 
 # 开发环境日志
 logging:

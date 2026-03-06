@@ -63,10 +63,23 @@ interface ApiService {
     
     @GET("api/education/contents")
     suspend fun getEducationContents(
+        @Query("stage") stage: String? = null,
         @Query("category") category: String? = null,
+        @Query("contentType") contentType: String? = null,
+        @Query("keyword") keyword: String? = null,
         @Query("page") page: Int = 1,
         @Query("page_size") pageSize: Int = 20
     ): Response<ApiResponse<EducationListResponse>>
+
+    @GET("api/education/contents/{id}")
+    suspend fun getEducationContent(
+        @Path("id") id: String
+    ): Response<ApiResponse<EducationContentDto>>
+
+    @POST("api/education/progress")
+    suspend fun reportProgress(
+        @Body request: EducationProgressRequest
+    ): Response<ApiResponse<EducationProgressResponse>>
     
     // ==================== 数据同步 ====================
     

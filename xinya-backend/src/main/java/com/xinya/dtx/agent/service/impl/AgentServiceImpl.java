@@ -1,14 +1,15 @@
 package com.xinya.dtx.agent.service.impl;
 
-import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.xinya.dtx.agent.dto.AgentChatRequest;
 import com.xinya.dtx.agent.dto.AgentChatResponse;
+import com.xinya.dtx.agent.dto.AgentChatPayload;
 import com.xinya.dtx.agent.dto.ConversationItemDto;
 import com.xinya.dtx.agent.dto.NursePushContentDto;
 import com.xinya.dtx.agent.dto.NursePushRequest;
 import com.xinya.dtx.agent.dto.NursePushResponse;
+import com.xinya.dtx.agent.dto.NurseSymptomTriggerPayload;
 import com.xinya.dtx.agent.dto.RecommendationsResponse;
 import com.xinya.dtx.agent.service.AgentService;
 import com.xinya.dtx.clinical.dto.ClinicalStageInfoDto;
@@ -58,7 +59,6 @@ public class AgentServiceImpl implements AgentService {
     private final AlertMapper alertMapper;
     private final ClinicalService clinicalService;
     private final WebClient.Builder webClientBuilder;
-    private final Gson gson = new Gson();
 
     @Value("${xinya.ai.psych-base-url:http://localhost:9001}")
     private String psychBaseUrl;
@@ -109,42 +109,38 @@ public class AgentServiceImpl implements AgentService {
         // 2. 组装调用 Agent 的上下文
         ClinicalStageInfoDto stageInfo = clinicalService.getCurrentStage(patient.getId());
 
-        JsonObject body = new JsonObject();
-        body.addProperty("sessionId", sessionId);
-
-        JsonObject patientContext = new JsonObject();
-        patientContext.addProperty("patientId", patient.getId());
-        patientContext.addProperty("name", patient.getName());
-        patientContext.addProperty("stage", patient.getStage());
-        patientContext.addProperty("stageName", stageInfo != null ? stageInfo.getStageName() : null);
-        patientContext.addProperty("daysInStage", stageInfo != null ? stageInfo.getDaysInStage() : null);
-        patientContext.addProperty("psychEnergy", patient.getPsychEnergy());
-        patientContext.addProperty("treeLevel", patient.getTreeLevel());
-        if (patient.getAge() != null) {
-            patientContext.addProperty("age", patient.getAge());
-        }
-        if (patient.getGender() != null) {
-            patientContext.addProperty("gender", patient.getGender());
-        }
-        if (patient.getDiagnosis() != null) {
-            patientContext.addProperty("diagnosis", patient.getDiagnosis());
-        }
-        body.add("patientContext", patientContext);
+        AgentChatPayload.PatientContext patientContext = AgentChatPayload.PatientContext.builder()
+                .patientId(patient.getId())
+                .name(patient.getName())
+                .stage(patient.getStage())
+                .stageName(stageInfo != null ? stageInfo.getStageName() : null)
+                .daysInStage(stageInfo != null ? stageInfo.getDaysInStage() : null)
+                .psychEnergy(patient.getPsychEnergy())
+                .treeLevel(patient.getTreeLevel())
+                .age(patient.getAge())
+                .gender(patient.getGender())
+                .diagnosis(patient.getDiagnosis())
+                .build();
 
         // 最近 10 条对话
         Pageable recentPage = PageRequest.of(0, 10);
         List<Conversation> recent = conversationMapper.findRecentByPatientIdAndAgentType(
                 patient.getId(), agentType, recentPage);
-        List<JsonObject> historyList = new ArrayList<>();
+        List<AgentChatPayload.HistoryItem> historyList = new ArrayList<>();
         for (int i = recent.size() - 1; i >= 0; i--) {
             Conversation c = recent.get(i);
-            JsonObject h = new JsonObject();
-            h.addProperty("role", Boolean.TRUE.equals(c.getIsFromUser()) ? "user" : "assistant");
-            h.addProperty("content", c.getMessage());
+            AgentChatPayload.HistoryItem h = AgentChatPayload.HistoryItem.builder()
+                    .role(Boolean.TRUE.equals(c.getIsFromUser()) ? "user" : "assistant")
+                    .content(c.getMessage())
+                    .build();
             historyList.add(h);
         }
-        body.add("history", gson.toJsonTree(historyList));
-        body.addProperty("message", request.getMessage());
+        AgentChatPayload payload = AgentChatPayload.builder()
+                .sessionId(sessionId)
+                .patientContext(patientContext)
+                .history(historyList)
+                .message(request.getMessage())
+                .build();
 
         // 3. 调用对应 Agent
         String baseUrl = "psych".equals(agentType) ? psychBaseUrl : nurseBaseUrl;
@@ -153,14 +149,17 @@ public class AgentServiceImpl implements AgentService {
         WebClient client = webClientBuilder.baseUrl(baseUrl).build();
         JsonObject agentResp;
         try {
-            agentResp = client.post()
+            String respJson = client.post()
                     .uri(path)
                     .header("Content-Type", "application/json")
                     .header("X-Api-Key", apiKey)
-                    .body(Mono.just(body), JsonElement.class)
+                    .bodyValue(payload)
                     .retrieve()
-                    .bodyToMono(JsonObject.class)
+                    .bodyToMono(String.class)
                     .block();
+            agentResp = respJson != null
+                    ? com.google.gson.JsonParser.parseString(respJson).getAsJsonObject()
+                    : null;
         } catch (WebClientResponseException e) {
             // 超时或 5xx 降级
             return buildFallbackResponse(patient, sessionId, agentType, userMsg);
@@ -304,27 +303,35 @@ public class AgentServiceImpl implements AgentService {
         // 这里先直接调用 nurse /v1/nurse/symptom-trigger，后续可根据需要补充本地兜底逻辑
         WebClient client = webClientBuilder.baseUrl(nurseBaseUrl).build();
 
-        JsonObject body = new JsonObject();
-        body.addProperty("patientId", request.getPatientId());
-        JsonObject ctx = new JsonObject();
-        // 简化：仅传 stage/currentEnergy
-        patientMapper.findById(request.getPatientId()).ifPresent(p -> {
-            ctx.addProperty("stage", p.getStage());
-            ctx.addProperty("psychEnergy", p.getPsychEnergy());
-        });
-        body.add("patientContext", ctx);
-        body.addProperty("triggerSource", request.getTriggerType());
+        Patient patient = patientMapper.findById(request.getPatientId()).orElse(null);
+        NurseSymptomTriggerPayload.PatientContext ctx = null;
+        if (patient != null) {
+            // 简化：仅传 stage/currentEnergy，后续可按文档补全字段
+            ctx = NurseSymptomTriggerPayload.PatientContext.builder()
+                    .stage(patient.getStage())
+                    .psychEnergy(patient.getPsychEnergy())
+                    .build();
+        }
+
+        NurseSymptomTriggerPayload payload = NurseSymptomTriggerPayload.builder()
+                .patientId(request.getPatientId())
+                .patientContext(ctx)
+                .triggerSource(request.getTriggerType())
+                .build();
 
         JsonObject agentResp;
         try {
-            agentResp = client.post()
+            String respJson = client.post()
                     .uri("/v1/nurse/symptom-trigger")
                     .header("Content-Type", "application/json")
                     .header("X-Api-Key", apiKey)
-                    .body(Mono.just(body), JsonElement.class)
+                    .bodyValue(payload)
                     .retrieve()
-                    .bodyToMono(JsonObject.class)
+                    .bodyToMono(String.class)
                     .block();
+            agentResp = respJson != null
+                    ? com.google.gson.JsonParser.parseString(respJson).getAsJsonObject()
+                    : null;
         } catch (Exception e) {
             return NursePushResponse.builder()
                     .recommendedContents(Collections.emptyList())
