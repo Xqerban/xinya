@@ -1,6 +1,7 @@
 """
 小芽 Agent API 服务
 """
+import threading
 from flask import Flask, request, jsonify
 from functools import wraps
 import traceback
@@ -13,20 +14,6 @@ app = Flask(__name__)
 
 # 全局 Agent 实例管理（按 sessionId 管理）
 agent_sessions: Dict[str, EnhancedChatAgent] = {}
-
-# API 密钥验证
-def require_api_key(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        api_key = request.headers.get('X-Api-Key')
-        expected_key = Config.API_KEY  # 可以单独配置一个 API_KEY
-        
-        if not api_key or api_key != expected_key:
-            return jsonify({"error": "unauthorized", "message": "无效的 API 密钥"}), 401
-        
-        return f(*args, **kwargs)
-    return decorated_function
-
 
 def get_or_create_agent(session_id: str) -> EnhancedChatAgent:
     """获取或创建 Agent 实例"""
@@ -154,7 +141,6 @@ def build_crisis_assessment(crisis_detection: Dict, cbt_analysis: Dict) -> Dict[
 
 
 @app.route('/v1/psych/chat', methods=['POST'])
-@require_api_key
 def psych_chat():
     """
     心理陪护智能体对话接口
@@ -181,7 +167,8 @@ def psych_chat():
         # 更新患者上下文
         stage = patient_context.get("stage", "PRETREATMENT")
         phase = map_stage_to_phase(stage)
-        agent.set_transplant_phase(phase)
+        if agent.get_transplant_phase() != phase:
+            agent.set_transplant_phase(phase)
         
         # 重建对话历史（如果需要）
         # 注意：这里简化处理，实际可能需要更复杂的历史管理
@@ -216,9 +203,9 @@ def psych_chat():
             }
         }
         
-        # 自动保存进度
+        # 自动保存进度（异步，不阻塞响应）
         if Config.AUTO_SAVE_PROGRESS:
-            agent.save_all_progress()
+            threading.Thread(target=agent.save_all_progress, daemon=True).start()
         
         return jsonify(response), 200
         
@@ -232,7 +219,6 @@ def psych_chat():
 
 
 @app.route('/v1/psych/recommendations', methods=['POST'])
-@require_api_key
 def psych_recommendations():
     """
     推荐提问接口
