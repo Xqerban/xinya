@@ -30,7 +30,7 @@ spring:
 
 # 服务器配置
 server:
-  port: 8080
+  port: 8081
   servlet:
     context-path: /
 
@@ -46,8 +46,8 @@ springdoc:
 # 应用配置
 xinya:
   ai:
-    api-key: ${AI_API_KEY:demo-key}
-    psych-base-url: http://localhost:9001
+    api-key: ${AI_API_KEY:sk-9895d0792ac243a997fd9a56dafaf0b1}
+    psych-base-url: http://localhost:8001
     nurse-base-url: http://localhost:8443
 
   auth:
@@ -57,3 +57,7 @@ xinya:
     access-token-exp-seconds: 900
     # refreshToken 默认 7 天
     refresh-token-exp-seconds: 604800
+
+  internal:
+    # 内部服务间通信密钥，生产环境请通过环境变量 INTERNAL_API_KEY 配置
+    api-key: ${INTERNAL_API_KEY:dev-internal-key}

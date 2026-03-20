@@ -1,11 +1,11 @@
 {
-  "total_energy": 176,
+  "total_energy": 312,
   "dimension_scores": {
-    "认知成长": 14,
-    "情绪调节": 85,
+    "认知成长": 23,
+    "情绪调节": 150,
     "行为改变": 6,
     "社交连接": 0,
-    "自我效能": 0
+    "自我效能": 8
   },
   "session_history": [
     {
@@ -205,6 +205,180 @@
         "intervention_needed": true,
         "recommended_technique": "行为激活"
       }
+    },
+    {
+      "timestamp": "2026-03-06T21:06:32.264220",
+      "user_message": "推荐一些我可以继续问的问题。",
+      "dimension_gains": {
+        "认知成长": 0,
+        "情绪调节": 15,
+        "行为改变": 0,
+        "社交连接": 0,
+        "自我效能": 4
+      },
+      "total_gain": 20,
+      "multiplier": 1.1,
+      "analysis": {
+        "emotional_state": {
+          "primary": "calm",
+          "severity": 1,
+          "details": {}
+        },
+        "cognitive_distortions": [],
+        "problem_severity": 1,
+        "intervention_needed": false,
+        "recommended_technique": "问题解决"
+      }
+    },
+    {
+      "timestamp": "2026-03-06T21:07:30.943024",
+      "user_message": "222131",
+      "dimension_gains": {
+        "认知成长": 3,
+        "情绪调节": 0,
+        "行为改变": 0,
+        "社交连接": 0,
+        "自我效能": 0
+      },
+      "total_gain": 3,
+      "multiplier": 1.1,
+      "analysis": {
+        "emotional_state": {
+          "primary": "anxiety",
+          "severity": 8,
+          "details": {}
+        },
+        "cognitive_distortions": [
+          "catastrophizing"
+        ],
+        "problem_severity": 8,
+        "intervention_needed": true,
+        "recommended_technique": "认知重构"
+      }
+    },
+    {
+      "timestamp": "2026-03-06T21:08:13.059974",
+      "user_message": "现在最让你担心的是什么？",
+      "dimension_gains": {
+        "认知成长": 3,
+        "情绪调节": 5,
+        "行为改变": 0,
+        "社交连接": 0,
+        "自我效能": 0
+      },
+      "total_gain": 8,
+      "multiplier": 1.1,
+      "analysis": {
+        "emotional_state": {
+          "primary": "anxiety",
+          "severity": 6,
+          "details": {}
+        },
+        "cognitive_distortions": [
+          "catastrophizing"
+        ],
+        "problem_severity": 7,
+        "intervention_needed": true,
+        "recommended_technique": "认知重构"
+      }
+    },
+    {
+      "timestamp": "2026-03-06T21:08:55.560606",
+      "user_message": "34233213",
+      "dimension_gains": {
+        "认知成长": 3,
+        "情绪调节": 0,
+        "行为改变": 0,
+        "社交连接": 0,
+        "自我效能": 0
+      },
+      "total_gain": 3,
+      "multiplier": 1.1,
+      "analysis": {
+        "emotional_state": {
+          "primary": "anxiety",
+          "severity": 8,
+          "details": {}
+        },
+        "cognitive_distortions": [
+          "catastrophizing"
+        ],
+        "problem_severity": 7,
+        "intervention_needed": true,
+        "recommended_technique": "认知重构"
+      }
+    },
+    {
+      "timestamp": "2026-03-16T20:11:02.170844",
+      "user_message": "推荐一些我可以继续问的问题。",
+      "dimension_gains": {
+        "认知成长": 0,
+        "情绪调节": 15,
+        "行为改变": 0,
+        "社交连接": 0,
+        "自我效能": 4
+      },
+      "total_gain": 20,
+      "multiplier": 1.1,
+      "analysis": {
+        "emotional_state": {
+          "primary": "calm",
+          "severity": 1,
+          "details": {}
+        },
+        "cognitive_distortions": [],
+        "problem_severity": 1,
+        "intervention_needed": false,
+        "recommended_technique": "问题解决"
+      }
+    },
+    {
+      "timestamp": "2026-03-16T20:22:38.123080",
+      "user_message": "wdsadasdasd",
+      "dimension_gains": {
+        "认知成长": 0,
+        "情绪调节": 15,
+        "行为改变": 0,
+        "社交连接": 0,
+        "自我效能": 0
+      },
+      "total_gain": 16,
+      "multiplier": 1.1,
+      "analysis": {
+        "emotional_state": {
+          "primary": "calm",
+          "severity": 1,
+          "details": {}
+        },
+        "cognitive_distortions": [],
+        "problem_severity": 1,
+        "intervention_needed": false,
+        "recommended_technique": "正念练习"
+      }
+    },
+    {
+      "timestamp": "2026-03-16T20:23:35.114464",
+      "user_message": "aaaa",
+      "dimension_gains": {
+        "认知成长": 0,
+        "情绪调节": 15,
+        "行为改变": 0,
+        "社交连接": 0,
+        "自我效能": 0
+      },
+      "total_gain": 16,
+      "multiplier": 1.1,
+      "analysis": {
+        "emotional_state": {
+          "primary": "calm",
+          "severity": 1,
+          "details": {}
+        },
+        "cognitive_distortions": [],
+        "problem_severity": 1,
+        "intervention_needed": false,
+        "recommended_technique": "正念练习"
+      }
     }
   ],
   "achievements": [
@@ -237,34 +411,46 @@
       "check_type": "dimension_emotional",
       "id": "emotion_aware",
       "unlocked_at": "2026-02-15T17:05:22.574709"
+    },
+    {
+      "name": "危机幸存者",
+      "description": "成功度过1次危机时刻",
+      "category": "韧性",
+      "threshold": 1,
+      "reward": 50,
+      "check_type": "crisis_overcome",
+      "id": "crisis_survivor",
+      "unlocked_at": "2026-03-16T20:11:02.170844"
     }
   ],
   "energy_trends": [
-    15,
-    17,
-    10,
-    6,
-    19,
     19,
     15,
-    15
+    15,
+    20,
+    3,
+    8,
+    3,
+    20,
+    16,
+    16
   ],
   "achievement_counters": {
     "mindfulness_count": 0,
     "cognitive_restructure_count": 0,
     "behavioral_activation_count": 0,
     "consecutive_days": 1,
-    "last_session_date": "2026-03-04",
-    "positive_emotion_count": 0,
-    "crisis_overcome_count": 0,
+    "last_session_date": "2026-03-16",
+    "positive_emotion_count": 3,
+    "crisis_overcome_count": 1,
     "high_quality_session_count": 0,
     "dimension_milestones": {
       "认知成长": 0,
-      "情绪调节": 50,
+      "情绪调节": 100,
       "行为改变": 0,
       "社交连接": 0,
       "自我效能": 0
     }
   },
-  "last_updated": "2026-03-04T19:50:38.142572"
+  "last_updated": "2026-03-16T20:23:41.813064"
 }

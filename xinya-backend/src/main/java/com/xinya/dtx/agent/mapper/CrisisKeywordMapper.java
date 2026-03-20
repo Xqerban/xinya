@@ -21,6 +21,9 @@ public interface CrisisKeywordMapper extends JpaRepository<CrisisKeyword, Long> 
     /** 关键词是否已存在 */
     boolean existsByKeyword(String keyword);
 
+    /** 按关键词文本查找（供内部同步使用） */
+    java.util.Optional<CrisisKeyword> findByKeyword(String keyword);
+
     /** 停用关键词 */
     @Modifying
     @Query("UPDATE CrisisKeyword k SET k.isActive = false WHERE k.id = :id")
