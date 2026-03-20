@@ -13,6 +13,7 @@
   },
   {
     "role": "assistant",
+<<<<<<< HEAD
     "content": "（停顿片刻，声音温和）我注意到你用了“最”这个字，可能心里压着好几件沉重的事。如果愿意，可以试着把它们像排队一样，一件件说给我听。\n\n如果你愿意，我们可以试一个小练习：\n听起来你现在心里挺不安的，咱们先一起看看这个担心。你说最怕的是移植后出现严重排异，这种想法确实很折磨人。不过咱们可以试着问问自己：有没有哪些时候，情况其实比想象中要好一点？哪怕是很小的进展，比如今天检查结果还平稳，或者医生说过排异风险其实在降低？咱们试着把“一定会很糟”的想法，慢慢变成“虽然有可能，但也有希望和办法”，你觉得呢？"
   },
   {
@@ -50,6 +51,9 @@
   {
     "role": "assistant",
     "content": "我注意到你发送了一些看似随机的字母。如果你现在感到有些混乱或难以表达，没关系，我在这里陪着你。你可以试着慢慢告诉我，发生了什么，或者你现在的感受是什么？",
+=======
+    "content": "听到你这么说，我真的很心疼。移植后的恢复期确实会让人感到疲惫和无力，这种“什么都不想做”的感觉是真实且值得被理解的。\n\n如果你愿意，我们可以试一个小练习：现在，试着在房间里找一个让你觉得舒服的角落，哪怕只是靠在枕头上。然后，慢慢地做三次深呼吸，感受空气进入身体的感觉。做完后，可以对自己轻轻说一句：“我今天已经尽力了。”",
+>>>>>>> 02d02cb5d0c58be7d719c747d04afbb479ed870e
     "metadata": {
       "response_type": "cbt_response",
       "cbt_analysis": {
@@ -58,10 +62,19 @@
           "severity": "1",
           "details": {}
         },
+<<<<<<< HEAD
         "cognitive_distortions": [],
         "problem_severity": "1",
         "intervention_needed": "False",
         "recommended_technique": "正念练习"
+=======
+        "cognitive_distortions": [
+          "negative_filter"
+        ],
+        "problem_severity": "6",
+        "intervention_needed": "True",
+        "recommended_technique": "行为激活"
+>>>>>>> 02d02cb5d0c58be7d719c747d04afbb479ed870e
       },
       "crisis_detection": {
         "alert": "False"
@@ -77,7 +90,11 @@
   },
   {
     "role": "assistant",
+<<<<<<< HEAD
     "content": "（先以温和的共情回应模糊表达）  \n我注意到你发了一串字母，可能此刻思绪有些飘忽，或者还没想好具体要聊什么。没关系的，我们可以慢慢来。  \n\n（用低门槛的提问引导方向）  \n你最近是感觉有些疲惫，还是心里有些事想梳理呢？",
+=======
+    "content": "听到你这么说，我真的很心疼。在恢复期感到疲惫和动力缺失是完全正常的，你的身体和心灵都在经历巨大的消耗。\n\n如果你愿意，我们可以试一个小练习：现在，试着慢慢站起来，走到窗边或门口，看看外面的天空或一棵树，哪怕只有一分钟。不需要做任何事，只是让眼睛接触一点不同的光线和颜色。这个小小的移动，或许能帮你打破此刻的沉重感。",
+>>>>>>> 02d02cb5d0c58be7d719c747d04afbb479ed870e
     "metadata": {
       "response_type": "cbt_response",
       "cbt_analysis": {
@@ -86,10 +103,19 @@
           "severity": "1",
           "details": {}
         },
+<<<<<<< HEAD
         "cognitive_distortions": [],
         "problem_severity": "1",
         "intervention_needed": "False",
         "recommended_technique": "正念练习"
+=======
+        "cognitive_distortions": [
+          "negative_filter"
+        ],
+        "problem_severity": "6",
+        "intervention_needed": "True",
+        "recommended_technique": "行为激活"
+>>>>>>> 02d02cb5d0c58be7d719c747d04afbb479ed870e
       },
       "crisis_detection": {
         "alert": "False"
