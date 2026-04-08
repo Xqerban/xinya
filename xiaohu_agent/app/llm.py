@@ -1,12 +1,103 @@
 import os
 import time
+import json
 from typing import Any, Dict, Optional
 
-import httpx
+from openai import AsyncOpenAI
 
 
-DEEPSEEK_URL = os.getenv("DEEPSEEK_BASE_URL")
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY",'sk-9895d0792ac243a997fd9a56dafaf0b1')
+client = AsyncOpenAI(
+    api_key=DEEPSEEK_API_KEY,
+    base_url="https://api.deepseek.com"
+)
+
+
+def _get_system_prompt(agent_type: str) -> str:
+    """Get the system prompt for the given agent type."""
+    base_prompt = (
+        "你是一个医疗AI助手，专门处理癌症患者的护理宣教和心理支持。"
+        "根据输入的患者信息和请求，返回指定格式的JSON响应。"
+        "确保响应是有效的JSON格式，不要添加额外文本。"
+        "如果某些内容未提供，使用默认值或忽略可选字段。"
+    )
+    
+    if agent_type == "nurse_chat":
+        return base_prompt + (
+            "\n\n任务：作为护理智能体（小护士），回答患者的护理宣教问题。"
+            "\n输出格式："
+            "\n{"
+            "\n  \"reply\": \"回复内容\","
+            "\n  \"recommendedQuestions\": [\"问题1\", \"问题2\"],"
+            "\n  \"recommendedContents\": [{\"contentId\": \"ec-001\", \"reason\": \"理由\"}],"
+            "\n  \"agentMeta\": {\"model\": \"deepseek-chat\", \"tokensUsed\": 0, \"latencyMs\": 0}"
+            "\n}"
+        )
+    elif agent_type == "nurse_symptom_trigger":
+        return base_prompt + (
+            "\n\n任务：根据患者症状，推荐宣教内容和推送消息。"
+            "\n输出格式："
+            "\n{"
+            "\n  \"pushMessage\": \"推送文案\","
+            "\n  \"recommendedContents\": ["
+            "\n    {"
+            "\n      \"contentId\": \"ec-003\","
+            "\n      \"title\": \"标题\","
+            "\n      \"matchedSymptom\": \"symptomKey\","
+            "\n      \"priority\": 1,"
+            "\n      \"reason\": \"理由\""
+            "\n    }"
+            "\n  ],"
+            "\n  \"hopeTreeExpDelta\": 15,"
+            "\n  \"agentMeta\": {\"model\": \"deepseek-chat\", \"latencyMs\": 0}"
+            "\n}"
+        )
+    elif agent_type == "nurse_reminder_plan":
+        return base_prompt + (
+            "\n\n任务：根据血象趋势，生成提醒计划。"
+            "\n输出格式："
+            "\n{"
+            "\n  \"patientId\": \"p-001\","
+            "\n  \"planType\": \"daily_schedule\","
+            "\n  \"trendInterpretation\": \"趋势解读\","
+            "\n  \"reminderPlan\": ["
+            "\n    {"
+            "\n      \"reminderId\": \"r-001\","
+            "\n      \"scheduledTime\": \"08:30\","
+            "\n      \"type\": \"education_push\","
+            "\n      \"contentId\": \"ec-009\","
+            "\n      \"pushMessage\": \"推送文案\","
+            "\n      \"priority\": 1,"
+            "\n      \"triggerReason\": \"理由\""
+            "\n    }"
+            "\n  ],"
+            "\n  \"immediateAlert\": null,"
+            "\n  \"hopeTreeExpDeltaPerCompletion\": 15"
+            "\n}"
+        )
+    elif agent_type == "nurse_recommendations":
+        return base_prompt + (
+            "\n\n任务：推荐提问。"
+            "\n输出格式："
+            "\n{"
+            "\n  \"questions\": [\"问题1\", \"问题2\"]"
+            "\n}"
+        )
+    elif agent_type == "psych_chat":
+        return base_prompt + (
+            "\n\n任务：作为心理智能体，回答患者心理问题。"
+            "\n输出格式："
+            "\n{"
+            "\n  \"reply\": \"回复内容\","
+            "\n  \"recommendedQuestions\": [\"问题1\", \"问题2\"],"
+            "\n  \"recommendedContents\": [{\"contentId\": \"ec-001\", \"reason\": \"理由\"}],"
+            "\n  \"energyAssessment\": {\"mood\": 50, \"energy\": 50, \"cognition\": 50, \"social\": 50, \"coping\": 50},"
+            "\n  \"crisisAssessment\": {\"level\": \"GREEN\", \"reason\": null},"
+            "\n  \"agentMeta\": {\"model\": \"deepseek-chat\", \"tokensUsed\": 0, \"latencyMs\": 0}"
+            "\n}"
+        )
+    else:
+        return base_prompt + "\n\n任务：通用回复，返回JSON格式响应。"
 
 
 async def call_deepseek(agent_type: str, **payload) -> Dict[str, Any]:
@@ -18,34 +109,35 @@ async def call_deepseek(agent_type: str, **payload) -> Dict[str, Any]:
     """
     start = time.time()
 
-    if not DEEPSEEK_URL or not DEEPSEEK_API_KEY:
+    if not DEEPSEEK_API_KEY:
         return _local_placeholder(agent_type, payload, start)
 
-    # never mutate caller's dict
-    body = dict(payload)
-    body["agentType"] = agent_type
+    system_prompt = _get_system_prompt(agent_type)
+    user_content = json.dumps(payload, ensure_ascii=False)
 
-    headers = {
-        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-        "Content-Type": "application/json",
-    }
-
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        try:
-            r = await client.post(DEEPSEEK_URL.rstrip("/") + "/v1/generate", json=body, headers=headers)
-            r.raise_for_status()
-            data = r.json()
-        except Exception:
-            return _local_placeholder(agent_type, payload, start)
-
-    latency_ms = int((time.time() - start) * 1000)
-    # Ensure agentMeta exists and has latency
-    if "agentMeta" not in data:
-        data["agentMeta"] = {"model": "deepseek", "tokensUsed": 0, "latencyMs": latency_ms}
-    else:
-        data["agentMeta"].setdefault("latencyMs", latency_ms)
-
-    return data
+    try:
+        response = await client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ],
+            stream=False
+        )
+        content = response.choices[0].message.content
+        data = json.loads(content)
+        # Validate basic structure
+        if not isinstance(data, dict):
+            raise ValueError("Response is not a dict")
+        # Add agentMeta if missing
+        if "agentMeta" not in data:
+            data["agentMeta"] = {"model": "deepseek-chat", "tokensUsed": 0, "latencyMs": 0}
+        latency_ms = int((time.time() - start) * 1000)
+        data["agentMeta"]["latencyMs"] = latency_ms
+        return data
+    except Exception as e:
+        print(f"DeepSeek call failed: {e}")
+        return _local_placeholder(agent_type, payload, start)
 
 
 def _local_placeholder(agent_type: str, payload: Any, start_time: Optional[float] = None) -> Dict[str, Any]:
@@ -65,8 +157,15 @@ def _local_placeholder(agent_type: str, payload: Any, start_time: Optional[float
         "agentMeta": {"model": "deepseek-fallback", "tokensUsed": 0, "latencyMs": latency_ms},
     }
 
-    # symptoms, reminders and questions are specialised and should be handled
-    # before the generic "nurse chat" branch, otherwise they get swallowed.
+    if agent_type == "nurse_chat":
+        # 按 Agent-api.md 示例返回结构
+        return {
+            "reply": "[deepseek-fallback] " + payload.get("message", "(no message)"),
+            "recommendedQuestions": ["什么时候需要通知医护？", "如何缓解不适？"],
+            "recommendedContents": [{"contentId": "ec-000", "reason": "占位推荐"}],
+            "agentMeta": base["agentMeta"],
+        }
+
     if agent_type == "nurse_symptom_trigger":
         # 按 Agent-api.md 示例返回结构
         return {
