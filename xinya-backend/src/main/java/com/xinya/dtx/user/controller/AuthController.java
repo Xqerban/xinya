@@ -1,7 +1,10 @@
 package com.xinya.dtx.user.controller;
 
 import com.xinya.dtx.common.response.*;
-import com.xinya.dtx.user.dto.*;
+import com.xinya.dtx.user.dto.LoginRequest;
+import com.xinya.dtx.user.dto.LoginResponse;
+import com.xinya.dtx.user.dto.PhoneLoginRequest;
+import com.xinya.dtx.user.dto.RefreshTokenRequest;
 import com.xinya.dtx.user.service.AuthService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -16,19 +19,6 @@ import org.springframework.web.bind.annotation.*;
 public class AuthController {
 
     private final AuthService authService;
-
-    /**
-     * 1.0 创建医护/运维用户（注册）
-     */
-    @PostMapping("/register")
-    public ApiResponse<UserDto> register(@RequestBody @Valid RegisterUserRequest request) {
-        try {
-            UserDto userDto = authService.register(request);
-            return ApiResponse.success(userDto);
-        } catch (IllegalArgumentException e) {
-            return ApiResponse.error(400, e.getMessage());
-        }
-    }
 
     /**
      * 1.1 用户名登录

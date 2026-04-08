@@ -2,7 +2,10 @@ package com.xinya.dtx.education.controller;
 
 import com.xinya.dtx.common.response.ApiResponse;
 import com.xinya.dtx.common.response.PageResult;
-import com.xinya.dtx.education.dto.*;
+import com.xinya.dtx.education.dto.EducationContentDto;
+import com.xinya.dtx.education.dto.EducationProgressRequest;
+import com.xinya.dtx.education.dto.EducationProgressResponse;
+import com.xinya.dtx.education.dto.PatientProgressSummaryDto;
 import com.xinya.dtx.education.service.EducationService;
 import jakarta.persistence.EntityNotFoundException;
 import jakarta.validation.Valid;
@@ -60,32 +63,4 @@ public class EducationController {
         }
     }
 
-    @PostMapping("/contents")
-    public ApiResponse<EducationContentDto> createContent(
-            @Valid @RequestBody CreateEducationContentRequest request) {
-        EducationContentDto dto = educationService.createContent(request);
-        return ApiResponse.success(dto);
-    }
-
-    @PutMapping("/contents/{id}")
-    public ApiResponse<EducationContentDto> updateContent(
-            @PathVariable String id,
-            @RequestBody UpdateEducationContentRequest request) {
-        try {
-            EducationContentDto dto = educationService.updateContent(id, request);
-            return ApiResponse.success(dto);
-        } catch (EntityNotFoundException e) {
-            return ApiResponse.error(404, e.getMessage());
-        }
-    }
-
-    @DeleteMapping("/contents/{id}")
-    public ApiResponse<Void> deactivateContent(@PathVariable String id) {
-        try {
-            educationService.deactivateContent(id);
-            return ApiResponse.success("已下架", null);
-        } catch (EntityNotFoundException e) {
-            return ApiResponse.error(404, e.getMessage());
-        }
-    }
 }

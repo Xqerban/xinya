@@ -1,0 +1,52 @@
+spring:
+  application:
+    name: xinya-ops
+
+  datasource:
+    url: jdbc:mysql://localhost:3306/xinya_ops?characterEncoding=utf-8&serverTimezone=GMT%2B8
+    username: xinya_ops
+    password: xinya_ops
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      idle-timeout: 300000
+      max-lifetime: 1200000
+
+  profiles:
+    active: dev
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: false
+
+  flyway:
+    enabled: false
+
+server:
+  port: 8082
+  servlet:
+    context-path: /
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    tags-sorter: alpha
+
+xinya:
+  auth:
+    # 与 xinya-backend 共享同一 JWT 密钥，生产环境通过环境变量 JWT_SECRET 注入
+    jwt-secret: ${JWT_SECRET:dev-secret-change-me}
+    access-token-exp-seconds: 900
+    refresh-token-exp-seconds: 604800
+
+  clinical:
+    # xinya-backend 地址，ops 通过内部 API 与之通信
+    base-url: ${CLINICAL_BASE_URL:http://localhost:8081}
+    internal-key: ${INTERNAL_API_KEY:dev-internal-key}
