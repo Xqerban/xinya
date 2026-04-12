@@ -13,6 +13,7 @@ import json
 from datetime import datetime
 from openai import OpenAI
 from config import Config
+from keyword_library import CRISIS_KEYWORDS, DIRECT_CRISIS_ALERT_TYPES, contains_any
 
 class CrisisType(Enum):
     """危机类型"""
@@ -48,31 +49,7 @@ class CrisisInterventionModule:
 
     def _load_crisis_keywords(self) -> Dict[str, List[str]]:
         """加载危机关键词"""
-        return {
-            CrisisType.SUICIDAL.value: [
-                "自杀", "死", "结束生命", "不想活了", "死了算了",
-                "自杀念头", "自杀想法", "轻生", "自我毁灭"
-            ],
-            CrisisType.SELF_HARM.value: [
-                "自残", "割腕", "伤害自己", "自伤", "伤自己"
-            ],
-            CrisisType.SEVERE_DEPRESSION.value: [
-                "绝望", "无助", "崩溃", "撑不住了", "活不下去了",
-                "没有意义", "一切都完了", "彻底绝望"
-            ],
-            CrisisType.PANIC_ATTACK.value: [
-                "恐慌发作", "心脏要停了", "喘不过气", "要死了",
-                "控制不住", "发疯了", "崩溃了"
-            ],
-            CrisisType.ACUTE_ANXIETY.value: [
-                "极度焦虑", "控制不住", "害怕死了", "心跳加速",
-                "呼吸困难", "出不去", "困住了"
-            ],
-            CrisisType.EMOTIONAL_BREAKDOWN.value: [
-                "情绪崩溃", "受不了了", "疯了", "控制不住情绪",
-                "爆发了", "忍不了了"
-            ]
-        }
+        return {crisis_type: keywords.copy() for crisis_type, keywords in CRISIS_KEYWORDS.items()}
 
     def detect_crisis(self, user_message: str, emotional_analysis: Dict) -> Dict[str, bool]:
         """
@@ -91,7 +68,6 @@ class CrisisInterventionModule:
         if Config.CRISIS_LLM_DETECTION_ENABLED:
             llm_result = self._llm_detect_crisis(user_message, emotional_analysis)
             if isinstance(llm_result, dict) and llm_result.get("has_crisis") is True:
-                # 使用配置阈值控制何时报警（更严重时才触发）
                 sev = int(llm_result.get("severity_score", 0) or 0)
                 threshold = getattr(Config, "CRISIS_ALERT_THRESHOLD", 10)
                 if sev >= threshold:
@@ -111,15 +87,18 @@ class CrisisInterventionModule:
     def _rule_based_detect_crisis(self, user_message: str, emotional_analysis: Dict) -> Dict[str, bool]:
         """兜底：关键词规则，只输出是否需要报警"""
         detected_types = self._analyze_crisis_keywords(user_message)
-        emotional_severity = int((emotional_analysis or {}).get("severity", 0) or 0)
 
+        if any(crisis_type in detected_types for crisis_type in DIRECT_CRISIS_ALERT_TYPES):
+            self._check_consecutive_crisis(detected_types)
+            return {"alert": True}
+
+        emotional_severity = int((emotional_analysis or {}).get("severity", 0) or 0)
         keyword_score = len(detected_types) * 3
         total_score = keyword_score + emotional_severity
 
         consecutive_factor = self._check_consecutive_crisis(detected_types)
         total_score += consecutive_factor
 
-        # 使用配置阈值控制何时报警（分数越高代表越严重）
         threshold = getattr(Config, "CRISIS_ALERT_THRESHOLD", 10)
         alert = total_score >= threshold
         return {"alert": alert}
@@ -138,16 +117,6 @@ class CrisisInterventionModule:
         return self._llm_client
 
     def _llm_detect_crisis(self, user_message: str, emotional_analysis: Dict) -> Optional[Dict[str, Any]]:
-        """
-        使用大模型进行危机检测，返回结构化结果：
-        {
-          "has_crisis": bool,
-          "crisis_level": "NONE|MILD|MODERATE|SEVERE|CRITICAL",
-          "crisis_types": ["自杀危机"|"自伤危机"|...],
-          "severity_score": int(0-20),
-          "reason": str
-        }
-        """
         client = self._get_llm_client()
         if client is None:
             return None
@@ -201,66 +170,44 @@ class CrisisInterventionModule:
             return None
 
     def _analyze_crisis_keywords(self, message: str) -> List[str]:
-        """分析危机关键词"""
         detected_types = []
-        message_lower = message.lower()
-
         for crisis_type, keywords in self.crisis_keywords.items():
-            for keyword in keywords:
-                if keyword in message_lower:
-                    if crisis_type not in detected_types:
-                        detected_types.append(crisis_type)
-                    break
-
+            if contains_any(message, keywords):
+                detected_types.append(crisis_type)
         return detected_types
 
     def _check_consecutive_crisis(self, detected_types: List[str]) -> int:
-        """检查连续危机"""
         current_time = time.time()
-
         if detected_types:
-            if (self.last_crisis_time and
-                current_time - self.last_crisis_time < 3600):  # 1小时内
+            if self.last_crisis_time and current_time - self.last_crisis_time < 3600:
                 self.consecutive_crisis_count += 1
             else:
                 self.consecutive_crisis_count = 1
-
             self.last_crisis_time = current_time
-
-            # 连续危机加重系数
             return min(self.consecutive_crisis_count * 2, 6)
-        else:
-            self.consecutive_crisis_count = 0
-            return 0
+        self.consecutive_crisis_count = 0
+        return 0
 
     def _record_crisis_event(self, user_message: str, severity_score: Optional[int] = None):
-        """记录危机事件（简化版，只记录触发报警的事件）"""
         event = {
             "timestamp": datetime.now().isoformat(),
             "user_message": user_message,
             "severity_score": severity_score
         }
-
         self.crisis_history.append(event)
-
-        # 保持最近50次危机记录
         if len(self.crisis_history) > 50:
             self.crisis_history = self.crisis_history[-50:]
 
     def _trigger_alert(self, crisis_data: Dict):
-        """触发报警"""
         if self.alert_callback:
             self.alert_callback(crisis_data)
         else:
-            # 默认报警行为：打印报警信息
-            print("\n" + "="*60)
+            print("\n" + "=" * 60)
             print("危机报警触发！")
-            # 危机细节已被简化，不再输出等级/类型
             print("请立即联系专业心理援助！")
-            print("="*60 + "\n")
+            print("=" * 60 + "\n")
 
     def get_grounding_exercise(self) -> str:
-        """获取正念接地练习"""
         return """
  正念接地练习（给身体留一点空间）
 
@@ -279,11 +226,9 @@ class CrisisInterventionModule:
         """
 
     def get_crisis_history_report(self) -> Dict[str, any]:
-        """获取危机历史报告"""
         if not self.crisis_history:
             return {"total_crises": 0, "recent_crises": []}
 
-        # 最近7天的危机
         week_ago = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         recent_crises = [
             event for event in self.crisis_history
@@ -293,17 +238,15 @@ class CrisisInterventionModule:
         return {
             "total_crises": len(self.crisis_history),
             "recent_crises_count": len(recent_crises),
-            "recent_crises": recent_crises[-5:]  # 最近5次
+            "recent_crises": recent_crises[-5:]
         }
 
     def save_crisis_history(self, filename: str = "crisis_history.json"):
-        """保存危机历史"""
         filepath = self._get_filepath(filename)
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(self.crisis_history, f, ensure_ascii=False, indent=2)
 
     def load_crisis_history(self, filename: str = "crisis_history.json"):
-        """加载危机历史"""
         try:
             filepath = self._get_filepath(filename)
             with open(filepath, 'r', encoding='utf-8') as f:
@@ -312,8 +255,8 @@ class CrisisInterventionModule:
             pass
         except Exception as e:
             print(f"加载危机历史失败: {str(e)}")
+
     def _get_filepath(self, filename: str) -> str:
-        """获取文件的完整路径（统一放在 Code 目录下）"""
         import os
         script_dir = os.path.dirname(os.path.abspath(__file__))
         return os.path.join(script_dir, filename)

@@ -294,35 +294,35 @@ def main():
                 continue  # 跳过空输入
 
             else:
-                # 正常对话 - 使用Deepseek chat
-                result = agent.chat(user_input)
+                # 正常对话 - 使用更快的流式链路
+                print(Fore.BLUE + "智能体: " + Style.RESET_ALL, end="")
 
-                # 显示智能体回复
-                print(Fore.BLUE + "智能体: " + Style.RESET_ALL)
-                response = result["response"]
-                
-                # 检查是否包含CBT建议，如果有则标为粉红色
-                cbt_marker = "如果你愿意，我们可以试一个小练习："
-                if cbt_marker in response:
-                    # 分离基础回复和CBT建议
-                    parts = response.split(cbt_marker, 1)
-                    if len(parts) == 2:
-                        base_response = parts[0]
-                        cbt_suggestion = cbt_marker + parts[1]
-                        print(base_response)
-                        print(Fore.MAGENTA + cbt_suggestion + Style.RESET_ALL)
-                    else:
-                        print(response)
-                else:
-                    print(response)
+                opening = agent.build_fast_opening(user_input)
+                if opening:
+                    sys.stdout.write(opening)
+                    sys.stdout.flush()
+
+                for chunk in agent.stream_chat(user_input):
+                    sys.stdout.write(chunk)
+                    sys.stdout.flush()
+
+                print()
+
+                result = agent.last_result or {
+                    "response": "",
+                    "response_type": "cbt_response",
+                    "crisis_detection": {},
+                    "energy_assessment": None,
+                    "energy_report": None,
+                }
 
                 # 显示危机警报（如果有）
-                display_crisis_alert(result["crisis_detection"])
+                display_crisis_alert(result.get("crisis_detection", {}))
 
                 # 显示能量反馈（如果启用且不是危机干预）
                 if (Config.ENERGY_FEEDBACK_ENABLED and
-                    result["response_type"] != "crisis_intervention"):
-                    display_energy_feedback(result["energy_assessment"], result["energy_report"])
+                    result.get("response_type") != "crisis_intervention"):
+                    display_energy_feedback(result.get("energy_assessment"), result.get("energy_report"))
 
                 print()  # 添加空行
 

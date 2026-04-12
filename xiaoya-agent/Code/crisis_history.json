@@ -1,1 +1,42 @@
-[]
+[
+  {
+    "timestamp": "2026-04-12T13:52:19.528021",
+    "user_message": "我好难受",
+    "severity_score": 12
+  },
+  {
+    "timestamp": "2026-04-12T14:52:59.182738",
+    "user_message": "我想死",
+    "severity_score": null
+  },
+  {
+    "timestamp": "2026-04-12T14:53:27.284027",
+    "user_message": "我不想活了",
+    "severity_score": null
+  },
+  {
+    "timestamp": "2026-04-12T14:53:35.106911",
+    "user_message": "我想砍死自己",
+    "severity_score": null
+  },
+  {
+    "timestamp": "2026-04-12T15:23:00.051066",
+    "user_message": "我不想活了",
+    "severity_score": null
+  },
+  {
+    "timestamp": "2026-04-12T15:23:06.196997",
+    "user_message": "我想死",
+    "severity_score": null
+  },
+  {
+    "timestamp": "2026-04-12T15:23:10.399145",
+    "user_message": "我很想割腕",
+    "severity_score": null
+  },
+  {
+    "timestamp": "2026-04-12T15:24:02.621460",
+    "user_message": "我想死",
+    "severity_score": null
+  }
+]
