@@ -1,9 +1,9 @@
 {
-  "total_energy": 2448,
+  "total_energy": 2928,
   "dimension_scores": {
-    "认知成长": 39,
-    "情绪调节": 555,
-    "行为改变": 42,
+    "认知成长": 42,
+    "情绪调节": 855,
+    "行为改变": 48,
     "社交连接": 0,
     "自我效能": 0
   },
@@ -1163,6 +1163,492 @@
         "intervention_needed": false,
         "recommended_technique": "放松训练"
       }
+    },
+    {
+      "timestamp": "2026-04-18T15:52:12.379811",
+      "user_message": "你好",
+      "dimension_gains": {
+        "认知成长": 0,
+        "情绪调节": 15,
+        "行为改变": 0,
+        "社交连接": 0,
+        "自我效能": 0
+      },
+      "total_gain": 19,
+      "multiplier": 1.32,
+      "analysis": {
+        "emotional_state": {
+          "primary": "neutral",
+          "severity": 1,
+          "details": {}
+        },
+        "cognitive_distortions": [],
+        "problem_severity": 1,
+        "intervention_needed": false,
+        "recommended_technique": "问题解决"
+      }
+    },
+    {
+      "timestamp": "2026-04-18T15:52:21.535493",
+      "user_message": "你好",
+      "dimension_gains": {
+        "认知成长": 0,
+        "情绪调节": 15,
+        "行为改变": 0,
+        "社交连接": 0,
+        "自我效能": 0
+      },
+      "total_gain": 16,
+      "multiplier": 1.1,
+      "analysis": {
+        "emotional_state": {
+          "primary": "neutral",
+          "severity": 1,
+          "details": {}
+        },
+        "cognitive_distortions": [],
+        "problem_severity": 1,
+        "intervention_needed": false,
+        "recommended_technique": "问题解决"
+      }
+    },
+    {
+      "timestamp": "2026-04-18T15:52:27.411347",
+      "user_message": "你好",
+      "dimension_gains": {
+        "认知成长": 0,
+        "情绪调节": 15,
+        "行为改变": 0,
+        "社交连接": 0,
+        "自我效能": 0
+      },
+      "total_gain": 16,
+      "multiplier": 1.1,
+      "analysis": {
+        "emotional_state": {
+          "primary": "neutral",
+          "severity": 1,
+          "details": {}
+        },
+        "cognitive_distortions": [],
+        "problem_severity": 1,
+        "intervention_needed": false,
+        "recommended_technique": "问题解决"
+      }
+    },
+    {
+      "timestamp": "2026-04-18T15:52:32.338166",
+      "user_message": "我好痛",
+      "dimension_gains": {
+        "认知成长": 0,
+        "情绪调节": 15,
+        "行为改变": 0,
+        "社交连接": 0,
+        "自我效能": 0
+      },
+      "total_gain": 16,
+      "multiplier": 1.1,
+      "analysis": {
+        "emotional_state": {
+          "primary": "neutral",
+          "severity": 1,
+          "details": {}
+        },
+        "cognitive_distortions": [],
+        "problem_severity": 1,
+        "intervention_needed": false,
+        "recommended_technique": "问题解决"
+      }
+    },
+    {
+      "timestamp": "2026-04-18T15:52:38.969982",
+      "user_message": "我好难受",
+      "dimension_gains": {
+        "认知成长": 0,
+        "情绪调节": 15,
+        "行为改变": 0,
+        "社交连接": 0,
+        "自我效能": 0
+      },
+      "total_gain": 16,
+      "multiplier": 1.1,
+      "analysis": {
+        "emotional_state": {
+          "primary": "neutral",
+          "severity": 1,
+          "details": {}
+        },
+        "cognitive_distortions": [],
+        "problem_severity": 1,
+        "intervention_needed": false,
+        "recommended_technique": "问题解决"
+      }
+    },
+    {
+      "timestamp": "2026-04-18T15:52:47.546519",
+      "user_message": "我好痛苦",
+      "dimension_gains": {
+        "认知成长": 0,
+        "情绪调节": 15,
+        "行为改变": 0,
+        "社交连接": 0,
+        "自我效能": 0
+      },
+      "total_gain": 19,
+      "multiplier": 1.32,
+      "analysis": {
+        "emotional_state": {
+          "primary": "neutral",
+          "severity": 1,
+          "details": {}
+        },
+        "cognitive_distortions": [],
+        "problem_severity": 1,
+        "intervention_needed": false,
+        "recommended_technique": "问题解决"
+      }
+    },
+    {
+      "timestamp": "2026-04-18T15:53:11.175677",
+      "user_message": "我完全不想动",
+      "dimension_gains": {
+        "认知成长": 3,
+        "情绪调节": 15,
+        "行为改变": 0,
+        "社交连接": 0,
+        "自我效能": 0
+      },
+      "total_gain": 23,
+      "multiplier": 1.32,
+      "analysis": {
+        "emotional_state": {
+          "primary": "neutral",
+          "severity": 1,
+          "details": {}
+        },
+        "cognitive_distortions": [
+          "all_or_nothing"
+        ],
+        "problem_severity": 1,
+        "intervention_needed": false,
+        "recommended_technique": "认知重构"
+      }
+    },
+    {
+      "timestamp": "2026-04-18T18:23:24.526737",
+      "user_message": "你好",
+      "dimension_gains": {
+        "认知成长": 0,
+        "情绪调节": 15,
+        "行为改变": 0,
+        "社交连接": 0,
+        "自我效能": 0
+      },
+      "total_gain": 19,
+      "multiplier": 1.32,
+      "analysis": {
+        "emotional_state": {
+          "primary": "neutral",
+          "severity": 1,
+          "details": {}
+        },
+        "cognitive_distortions": [],
+        "problem_severity": 1,
+        "intervention_needed": false,
+        "recommended_technique": "问题解决"
+      }
+    },
+    {
+      "timestamp": "2026-04-18T18:23:29.095626",
+      "user_message": "我好难受",
+      "dimension_gains": {
+        "认知成长": 0,
+        "情绪调节": 15,
+        "行为改变": 0,
+        "社交连接": 0,
+        "自我效能": 0
+      },
+      "total_gain": 19,
+      "multiplier": 1.32,
+      "analysis": {
+        "emotional_state": {
+          "primary": "neutral",
+          "severity": 1,
+          "details": {}
+        },
+        "cognitive_distortions": [],
+        "problem_severity": 1,
+        "intervention_needed": false,
+        "recommended_technique": "问题解决"
+      }
+    },
+    {
+      "timestamp": "2026-04-18T18:24:27.022630",
+      "user_message": "我太难受了",
+      "dimension_gains": {
+        "认知成长": 0,
+        "情绪调节": 15,
+        "行为改变": 0,
+        "社交连接": 0,
+        "自我效能": 0
+      },
+      "total_gain": 19,
+      "multiplier": 1.32,
+      "analysis": {
+        "emotional_state": {
+          "primary": "neutral",
+          "severity": 1,
+          "details": {}
+        },
+        "cognitive_distortions": [],
+        "problem_severity": 1,
+        "intervention_needed": false,
+        "recommended_technique": "问题解决"
+      }
+    },
+    {
+      "timestamp": "2026-04-18T18:24:53.026553",
+      "user_message": "我有点担心明天的手术",
+      "dimension_gains": {
+        "认知成长": 0,
+        "情绪调节": 15,
+        "行为改变": 3,
+        "社交连接": 0,
+        "自我效能": 0
+      },
+      "total_gain": 23,
+      "multiplier": 1.32,
+      "analysis": {
+        "emotional_state": {
+          "primary": "anxiety",
+          "severity": 2,
+          "details": {
+            "anxiety": 1
+          }
+        },
+        "cognitive_distortions": [],
+        "problem_severity": 6,
+        "intervention_needed": false,
+        "recommended_technique": "放松训练"
+      }
+    },
+    {
+      "timestamp": "2026-04-18T20:24:22.216974",
+      "user_message": "你好",
+      "dimension_gains": {
+        "认知成长": 0,
+        "情绪调节": 15,
+        "行为改变": 0,
+        "社交连接": 0,
+        "自我效能": 0
+      },
+      "total_gain": 19,
+      "multiplier": 1.32,
+      "analysis": {
+        "emotional_state": {
+          "primary": "neutral",
+          "severity": 1,
+          "details": {}
+        },
+        "cognitive_distortions": [],
+        "problem_severity": 1,
+        "intervention_needed": false,
+        "recommended_technique": "问题解决"
+      }
+    },
+    {
+      "timestamp": "2026-04-18T20:24:25.954683",
+      "user_message": "你好",
+      "dimension_gains": {
+        "认知成长": 0,
+        "情绪调节": 15,
+        "行为改变": 0,
+        "社交连接": 0,
+        "自我效能": 0
+      },
+      "total_gain": 19,
+      "multiplier": 1.32,
+      "analysis": {
+        "emotional_state": {
+          "primary": "neutral",
+          "severity": 1,
+          "details": {}
+        },
+        "cognitive_distortions": [],
+        "problem_severity": 1,
+        "intervention_needed": false,
+        "recommended_technique": "问题解决"
+      }
+    },
+    {
+      "timestamp": "2026-04-18T20:24:30.144687",
+      "user_message": "你好",
+      "dimension_gains": {
+        "认知成长": 0,
+        "情绪调节": 15,
+        "行为改变": 0,
+        "社交连接": 0,
+        "自我效能": 0
+      },
+      "total_gain": 19,
+      "multiplier": 1.32,
+      "analysis": {
+        "emotional_state": {
+          "primary": "neutral",
+          "severity": 1,
+          "details": {}
+        },
+        "cognitive_distortions": [],
+        "problem_severity": 1,
+        "intervention_needed": false,
+        "recommended_technique": "问题解决"
+      }
+    },
+    {
+      "timestamp": "2026-04-18T20:24:35.244719",
+      "user_message": "你好",
+      "dimension_gains": {
+        "认知成长": 0,
+        "情绪调节": 15,
+        "行为改变": 0,
+        "社交连接": 0,
+        "自我效能": 0
+      },
+      "total_gain": 19,
+      "multiplier": 1.32,
+      "analysis": {
+        "emotional_state": {
+          "primary": "neutral",
+          "severity": 1,
+          "details": {}
+        },
+        "cognitive_distortions": [],
+        "problem_severity": 1,
+        "intervention_needed": false,
+        "recommended_technique": "问题解决"
+      }
+    },
+    {
+      "timestamp": "2026-04-18T20:24:40.533797",
+      "user_message": "我好难受",
+      "dimension_gains": {
+        "认知成长": 0,
+        "情绪调节": 15,
+        "行为改变": 0,
+        "社交连接": 0,
+        "自我效能": 0
+      },
+      "total_gain": 19,
+      "multiplier": 1.32,
+      "analysis": {
+        "emotional_state": {
+          "primary": "neutral",
+          "severity": 1,
+          "details": {}
+        },
+        "cognitive_distortions": [],
+        "problem_severity": 1,
+        "intervention_needed": false,
+        "recommended_technique": "问题解决"
+      }
+    },
+    {
+      "timestamp": "2026-04-18T20:24:54.264896",
+      "user_message": "我不是一般地难受",
+      "dimension_gains": {
+        "认知成长": 0,
+        "情绪调节": 15,
+        "行为改变": 0,
+        "社交连接": 0,
+        "自我效能": 0
+      },
+      "total_gain": 19,
+      "multiplier": 1.32,
+      "analysis": {
+        "emotional_state": {
+          "primary": "neutral",
+          "severity": 1,
+          "details": {}
+        },
+        "cognitive_distortions": [],
+        "problem_severity": 1,
+        "intervention_needed": false,
+        "recommended_technique": "问题解决"
+      }
+    },
+    {
+      "timestamp": "2026-04-18T20:25:12.937370",
+      "user_message": "我明天手术，我好紧张",
+      "dimension_gains": {
+        "认知成长": 0,
+        "情绪调节": 15,
+        "行为改变": 3,
+        "社交连接": 0,
+        "自我效能": 0
+      },
+      "total_gain": 23,
+      "multiplier": 1.32,
+      "analysis": {
+        "emotional_state": {
+          "primary": "anxiety",
+          "severity": 2,
+          "details": {
+            "anxiety": 1
+          }
+        },
+        "cognitive_distortions": [],
+        "problem_severity": 1,
+        "intervention_needed": false,
+        "recommended_technique": "放松训练"
+      }
+    },
+    {
+      "timestamp": "2026-04-19T18:10:23.811736",
+      "user_message": "111",
+      "dimension_gains": {
+        "认知成长": 0,
+        "情绪调节": 15,
+        "行为改变": 0,
+        "社交连接": 0,
+        "自我效能": 0
+      },
+      "total_gain": 19,
+      "multiplier": 1.32,
+      "analysis": {
+        "emotional_state": {
+          "primary": "neutral",
+          "severity": 1,
+          "details": {}
+        },
+        "cognitive_distortions": [],
+        "problem_severity": 1,
+        "intervention_needed": false,
+        "recommended_technique": "问题解决"
+      }
+    },
+    {
+      "timestamp": "2026-04-19T18:10:26.852645",
+      "user_message": "111",
+      "dimension_gains": {
+        "认知成长": 0,
+        "情绪调节": 15,
+        "行为改变": 0,
+        "社交连接": 0,
+        "自我效能": 0
+      },
+      "total_gain": 19,
+      "multiplier": 1.32,
+      "analysis": {
+        "emotional_state": {
+          "primary": "neutral",
+          "severity": 1,
+          "details": {}
+        },
+        "cognitive_distortions": [],
+        "problem_severity": 1,
+        "intervention_needed": false,
+        "recommended_technique": "问题解决"
+      }
     }
   ],
   "achievements": [
@@ -1275,27 +1761,37 @@
       "check_type": "total_energy",
       "id": "energy_titan",
       "unlocked_at": "2026-04-12T15:24:17.534637"
+    },
+    {
+      "name": "老兵",
+      "description": "完成50次对话",
+      "category": "基础",
+      "threshold": 50,
+      "reward": 100,
+      "check_type": "session_count",
+      "id": "veteran",
+      "unlocked_at": "2026-04-18T15:52:27.411347"
     }
   ],
   "energy_trends": [
+    23,
     19,
     19,
     19,
     19,
     19,
     19,
+    23,
     19,
-    19,
-    19,
-    23
+    19
   ],
   "achievement_counters": {
     "mindfulness_count": 0,
     "cognitive_restructure_count": 0,
     "behavioral_activation_count": 0,
-    "consecutive_days": 1,
-    "last_session_date": "2026-04-12",
-    "positive_emotion_count": 25,
+    "consecutive_days": 2,
+    "last_session_date": "2026-04-19",
+    "positive_emotion_count": 45,
     "crisis_overcome_count": 0,
     "high_quality_session_count": 0,
     "dimension_milestones": {
@@ -1306,5 +1802,5 @@
       "自我效能": 0
     }
   },
-  "last_updated": "2026-04-12T15:24:30.729939"
+  "last_updated": "2026-04-19T18:10:28.075807"
 }

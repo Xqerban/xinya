@@ -231,6 +231,125 @@ CBT_TRIGGER_KEYWORDS = [
 ]
 
 # =========================
+# 心理能量评估关键词
+# =========================
+ENERGY_COGNITIVE_INDICATORS = [
+    "我觉得",
+    "我意识到",
+    "我发现",
+    "更平衡的看法",
+    "替代想法",
+    "不同角度",
+    "重新思考",
+]
+
+ENERGY_COGNITIVE_DEEPENING_KEYWORDS = [
+    "为什么",
+    "怎么",
+    "如果",
+    "可能",
+]
+
+ENERGY_EMOTIONAL_WORDS = [
+    "感受",
+    "情绪",
+    "心情",
+    "感觉",
+    "平静",
+    "焦虑",
+]
+
+ENERGY_BEHAVIOR_INDICATORS = [
+    "我要",
+    "我打算",
+    "我计划",
+    "我会试着",
+    "开始做",
+    "继续做",
+    "改变",
+    "行动",
+]
+
+ENERGY_BEHAVIOR_PLAN_KEYWORDS = [
+    "明天",
+    "今天",
+    "这个星期",
+    "下次",
+]
+
+ENERGY_SOCIAL_INDICATORS = [
+    "朋友",
+    "家人",
+    "同事",
+    "老师",
+    "同学",
+    "联系",
+    "沟通",
+    "分享",
+    "倾诉",
+    "支持",
+]
+
+ENERGY_HELP_SEEKING_KEYWORDS = [
+    "寻求",
+    "需要",
+    "希望",
+    "想要",
+]
+
+ENERGY_EFFICACY_INDICATORS = [
+    "我能",
+    "我会",
+    "我可以",
+    "我相信",
+    "我有能力",
+    "我能处理",
+    "我能应对",
+]
+
+ENERGY_PROBLEM_SOLVING_KEYWORDS = [
+    "解决方案",
+    "办法",
+    "策略",
+    "步骤",
+]
+
+ENERGY_MINDFULNESS_INDICATORS = [
+    "呼吸",
+    "正念",
+    "冥想",
+    "觉察",
+    "当下",
+    "专注",
+    "放松",
+    "平静",
+    "接纳",
+]
+
+ENERGY_COGNITIVE_RESTRUCTURE_INDICATORS = [
+    "我觉得",
+    "我意识到",
+    "我发现",
+    "更平衡的看法",
+    "替代想法",
+    "不同角度",
+    "重新思考",
+    "换个角度",
+]
+
+ENERGY_BEHAVIORAL_ACTIVATION_INDICATORS = [
+    "我要",
+    "我打算",
+    "我计划",
+    "我会试着",
+    "开始做",
+    "继续做",
+    "改变",
+    "行动",
+    "尝试",
+]
+
+# =========================
 # 移植分期和场景关键词
 # =========================
 TRANSPLANT_PHASE_KEYWORDS = {

@@ -10,10 +10,14 @@ from enum import Enum
 from typing import Dict, List, Optional, Callable, Any
 import time
 import json
+import logging
 from datetime import datetime
 from openai import OpenAI
 from config import Config
 from keyword_library import CRISIS_KEYWORDS, DIRECT_CRISIS_ALERT_TYPES, contains_any
+
+logger = logging.getLogger(__name__)
+
 
 class CrisisType(Enum):
     """危机类型"""
@@ -23,6 +27,7 @@ class CrisisType(Enum):
     PANIC_ATTACK = "惊恐发作"
     ACUTE_ANXIETY = "急性焦虑"
     EMOTIONAL_BREAKDOWN = "情绪崩溃"
+
 
 class CrisisInterventionModule:
     """危机干预模块"""
@@ -64,7 +69,6 @@ class CrisisInterventionModule:
         if not Config.CRISIS_DETECTION_ENABLED:
             return {"alert": False}
 
-        # 1) LLM 判定（优先）
         if Config.CRISIS_LLM_DETECTION_ENABLED:
             llm_result = self._llm_detect_crisis(user_message, emotional_analysis)
             if isinstance(llm_result, dict) and llm_result.get("has_crisis") is True:
@@ -75,7 +79,6 @@ class CrisisInterventionModule:
                     self._trigger_alert({"alert": True})
                     return {"alert": True}
 
-        # 2) 兜底：关键词规则
         rule = self._rule_based_detect_crisis(user_message, emotional_analysis)
         if rule.get("alert", False):
             self._record_crisis_event(user_message)
@@ -100,8 +103,7 @@ class CrisisInterventionModule:
         total_score += consecutive_factor
 
         threshold = getattr(Config, "CRISIS_ALERT_THRESHOLD", 10)
-        alert = total_score >= threshold
-        return {"alert": alert}
+        return {"alert": total_score >= threshold}
 
     def _get_llm_client(self) -> Optional[Any]:
         """懒加载 LLM 客户端"""
@@ -111,8 +113,8 @@ class CrisisInterventionModule:
                     api_key=Config.API_KEY,
                     base_url=Config.API_BASE_URL
                 )
-            except Exception as e:
-                print(f"初始化危机检测 LLM 客户端失败: {e}")
+            except Exception:
+                logger.exception("初始化危机检测 LLM 客户端失败")
                 self._llm_client = None
         return self._llm_client
 
@@ -162,11 +164,9 @@ class CrisisInterventionModule:
                         content = "\n".join(content.splitlines()[1:])
 
             data = json.loads(content)
-            if isinstance(data, dict):
-                return data
-            return None
-        except Exception as e:
-            print(f"LLM 危机检测失败，将使用关键词规则兜底: {e}")
+            return data if isinstance(data, dict) else None
+        except Exception:
+            logger.exception("LLM 危机检测失败，将使用关键词规则兜底")
             return None
 
     def _analyze_crisis_keywords(self, message: str) -> List[str]:
@@ -202,10 +202,7 @@ class CrisisInterventionModule:
         if self.alert_callback:
             self.alert_callback(crisis_data)
         else:
-            print("\n" + "=" * 60)
-            print("危机报警触发！")
-            print("请立即联系专业心理援助！")
-            print("=" * 60 + "\n")
+            logger.critical("危机报警触发，请立即联系专业心理援助")
 
     def get_grounding_exercise(self) -> str:
         return """
@@ -253,8 +250,8 @@ class CrisisInterventionModule:
                 self.crisis_history = json.load(f)
         except FileNotFoundError:
             pass
-        except Exception as e:
-            print(f"加载危机历史失败: {str(e)}")
+        except Exception:
+            logger.exception("加载危机历史失败")
 
     def _get_filepath(self, filename: str) -> str:
         import os

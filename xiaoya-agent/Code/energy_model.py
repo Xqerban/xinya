@@ -2,11 +2,24 @@
 心理能量评估模型
 将对话质量转化为生长积分
 """
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List
 import json
-import time
-from datetime import datetime, timedelta
-import math
+from datetime import datetime
+from keyword_library import (
+    ENERGY_COGNITIVE_INDICATORS,
+    ENERGY_COGNITIVE_DEEPENING_KEYWORDS,
+    ENERGY_EMOTIONAL_WORDS,
+    ENERGY_BEHAVIOR_INDICATORS,
+    ENERGY_BEHAVIOR_PLAN_KEYWORDS,
+    ENERGY_SOCIAL_INDICATORS,
+    ENERGY_HELP_SEEKING_KEYWORDS,
+    ENERGY_EFFICACY_INDICATORS,
+    ENERGY_PROBLEM_SOLVING_KEYWORDS,
+    ENERGY_MINDFULNESS_INDICATORS,
+    ENERGY_COGNITIVE_RESTRUCTURE_INDICATORS,
+    ENERGY_BEHAVIORAL_ACTIVATION_INDICATORS,
+    contains_any,
+)
 
 class EnergyDimension:
     """能量维度枚举"""
@@ -466,12 +479,7 @@ class PsychologicalEnergyModel:
         base_score = 0
 
         # 检查是否有认知重构迹象
-        cognitive_indicators = [
-            "我觉得", "我意识到", "我发现", "更平衡的看法",
-            "替代想法", "不同角度", "重新思考"
-        ]
-
-        for indicator in cognitive_indicators:
+        for indicator in ENERGY_COGNITIVE_INDICATORS:
             if indicator in user_message:
                 base_score += 5
 
@@ -480,7 +488,7 @@ class PsychologicalEnergyModel:
         base_score += len(distortions) * 3
 
         # 检查反思深度
-        if any(word in user_message for word in ["为什么", "怎么", "如果", "可能"]):
+        if contains_any(user_message, ENERGY_COGNITIVE_DEEPENING_KEYWORDS):
             base_score += 2
 
         return min(base_score, 20)  # 最大20分
@@ -501,8 +509,7 @@ class PsychologicalEnergyModel:
             base_score += 5
 
         # 情绪词汇丰富度
-        emotional_words = ["感受", "情绪", "心情", "感觉", "平静", "焦虑"]
-        for word in emotional_words:
+        for word in ENERGY_EMOTIONAL_WORDS:
             if word in str(analysis):
                 base_score += 1
 
@@ -513,17 +520,12 @@ class PsychologicalEnergyModel:
         base_score = 0
 
         # 检查行为意图
-        behavior_indicators = [
-            "我要", "我打算", "我计划", "我会试着",
-            "开始做", "继续做", "改变", "行动"
-        ]
-
-        for indicator in behavior_indicators:
+        for indicator in ENERGY_BEHAVIOR_INDICATORS:
             if indicator in user_message:
                 base_score += 4
 
         # 检查具体计划
-        if any(word in user_message for word in ["明天", "今天", "这个星期", "下次"]):
+        if contains_any(user_message, ENERGY_BEHAVIOR_PLAN_KEYWORDS):
             base_score += 3
 
         return min(base_score, 20)  # 最大20分
@@ -533,17 +535,12 @@ class PsychologicalEnergyModel:
         base_score = 0
 
         # 检查社交相关内容
-        social_indicators = [
-            "朋友", "家人", "同事", "老师", "同学",
-            "联系", "沟通", "分享", "倾诉", "支持"
-        ]
-
-        for indicator in social_indicators:
+        for indicator in ENERGY_SOCIAL_INDICATORS:
             if indicator in user_message:
                 base_score += 3
 
         # 检查寻求帮助
-        if any(word in user_message for word in ["寻求", "需要", "希望", "想要"]):
+        if contains_any(user_message, ENERGY_HELP_SEEKING_KEYWORDS):
             base_score += 5
 
         return min(base_score, 15)  # 最大15分
@@ -553,23 +550,18 @@ class PsychologicalEnergyModel:
         base_score = 0
 
         # 检查自信表达
-        efficacy_indicators = [
-            "我能", "我会", "我可以", "我相信",
-            "我有能力", "我能处理", "我能应对"
-        ]
-
-        for indicator in efficacy_indicators:
+        for indicator in ENERGY_EFFICACY_INDICATORS:
             if indicator in user_message:
                 base_score += 4
 
         # 检查问题解决能力
-        if any(word in user_message for word in ["解决方案", "办法", "策略", "步骤"]):
+        if contains_any(user_message, ENERGY_PROBLEM_SOLVING_KEYWORDS):
             base_score += 5
 
         # 负面情绪下仍保持积极
         emotional_state = analysis.get("emotional_state", {})
         if emotional_state.get("severity", 0) >= 6:
-            if any(indicator in efficacy_indicators for indicator in user_message.split()):
+            if contains_any(user_message, ENERGY_EFFICACY_INDICATORS):
                 base_score += 8  # 额外奖励
 
         return min(base_score, 20)  # 最大20分
@@ -626,32 +618,20 @@ class PsychologicalEnergyModel:
         self.achievement_counters["last_session_date"] = current_date.isoformat()
 
         # 2. 检测认知重构
-        cognitive_indicators = [
-            "我觉得", "我意识到", "我发现", "更平衡的看法",
-            "替代想法", "不同角度", "重新思考", "换个角度"
-        ]
-        if any(indicator in user_message for indicator in cognitive_indicators):
+        if contains_any(user_message, ENERGY_COGNITIVE_RESTRUCTURE_INDICATORS):
             distortions = analysis.get("cognitive_distortions", [])
             if distortions:  # 有认知扭曲且进行了重构
                 self.achievement_counters["cognitive_restructure_count"] += 1
 
         # 3. 检测正念练习
-        mindfulness_indicators = [
-            "呼吸", "正念", "冥想", "觉察", "当下", "专注",
-            "放松", "平静", "接纳"
-        ]
-        if any(indicator in user_message for indicator in mindfulness_indicators):
+        if contains_any(user_message, ENERGY_MINDFULNESS_INDICATORS):
             # 检查是否推荐了正念技术
             recommended = analysis.get("recommended_technique")
             if recommended and "MINDFULNESS" in str(recommended):
                 self.achievement_counters["mindfulness_count"] += 1
 
         # 4. 检测行为激活
-        behavior_indicators = [
-            "我要", "我打算", "我计划", "我会试着",
-            "开始做", "继续做", "改变", "行动", "尝试"
-        ]
-        if any(indicator in user_message for indicator in behavior_indicators):
+        if contains_any(user_message, ENERGY_BEHAVIORAL_ACTIVATION_INDICATORS):
             recommended = analysis.get("recommended_technique")
             if recommended and "BEHAVIORAL_ACTIVATION" in str(recommended):
                 self.achievement_counters["behavioral_activation_count"] += 1

@@ -38,5 +38,30 @@
     "timestamp": "2026-04-12T15:24:02.621460",
     "user_message": "我想死",
     "severity_score": null
+  },
+  {
+    "timestamp": "2026-04-18T15:52:50.059385",
+    "user_message": "我不想活了",
+    "severity_score": null
+  },
+  {
+    "timestamp": "2026-04-18T15:52:59.084393",
+    "user_message": "我难受得像死",
+    "severity_score": null
+  },
+  {
+    "timestamp": "2026-04-18T18:24:21.075962",
+    "user_message": "我不想活了",
+    "severity_score": null
+  },
+  {
+    "timestamp": "2026-04-18T18:24:33.667995",
+    "user_message": "我难受得不想活了",
+    "severity_score": null
+  },
+  {
+    "timestamp": "2026-04-18T20:25:00.553556",
+    "user_message": "我不想活了",
+    "severity_score": null
   }
 ]

@@ -18,14 +18,6 @@ from keyword_library import (
     count_keyword_matches,
     contains_any,
 )
-from keyword_library import (
-    CBT_EMOTION_KEYWORDS,
-    CBT_COGNITIVE_DISTORTION_KEYWORDS,
-    CBT_SEVERITY_KEYWORDS,
-    CBT_TRIGGER_KEYWORDS,
-    count_keyword_matches,
-    contains_any,
-)
 
 class CBTTechnique(Enum):
     """CBT技术类型枚举"""

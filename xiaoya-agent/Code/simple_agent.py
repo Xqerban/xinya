@@ -6,6 +6,7 @@ from typing import List, Dict, Optional, Iterator, Any
 import json
 import os
 import threading
+import logging
 from config import Config
 from cbt_module import CBTModule, CBTTechnique
 from energy_model import PsychologicalEnergyModel
@@ -31,6 +32,9 @@ FAST_OPENINGS = {
     "hope": "我在，这份期待很珍贵。",
     "neutral": "我在，你可以慢慢说。",
 }
+
+logger = logging.getLogger(__name__)
+USER_FACING_ERROR_MESSAGE = "我刚刚有点卡住了，我们再试一次，好吗？"
 
 class EnhancedChatAgent:
     """增强版对话智能体类 - 集成CBT、心理能量和危机干预"""
@@ -393,10 +397,9 @@ class EnhancedChatAgent:
                     response_parts.append(text)
                     yield text
         except Exception as e:
-            error_msg = f"发生错误: {str(e)}"
-            print(error_msg)
-            response_parts = [error_msg]
-            yield error_msg
+            logger.exception("流式回复生成失败")
+            response_parts = [USER_FACING_ERROR_MESSAGE]
+            yield USER_FACING_ERROR_MESSAGE
         finally:
             full_response = "".join(response_parts)
             self.last_result = self._finalize_chat_turn(
@@ -454,9 +457,8 @@ class EnhancedChatAgent:
             api_response = self._create_response_stream(user_message, analysis, stream=False)
             return api_response.choices[0].message.content
         except Exception as e:
-            error_msg = f"发生错误: {str(e)}"
-            print(error_msg)
-            return error_msg
+            logger.exception("普通回复生成失败")
+            return USER_FACING_ERROR_MESSAGE
 
     def _create_response_stream(
         self,
@@ -593,8 +595,8 @@ class EnhancedChatAgent:
             phase = tp.get("phase")
             if isinstance(phase, TransplantPhase) and phase != self.get_transplant_phase():
                 self.set_transplant_phase(phase)
-        except Exception as e:
-            print(f"流式后置分析失败: {e}")
+        except Exception:
+            logger.exception("流式后置分析失败")
 
     def _should_add_cbt_guidance(self, analysis: Dict) -> bool:
         """判断是否需要追加CBT引导（危机由 crisis_module 处理）"""
@@ -621,14 +623,9 @@ class EnhancedChatAgent:
 
     def _crisis_alert_callback(self, crisis_data: Dict):
         """危机报警回调"""
-        print("\n" + "="*60)
-        print(" 紧急危机报警！")
-        print("已触发报警标记 alert=true")
-        print("建议立即采取以下行动:")
-        print("1. 立即联系身边医护/家属获得现实支持")
-        print("2. 必要时拨打120或当地紧急救助电话")
-        print("3. 可同时联系专业心理援助热线")
-        print("="*60 + "\n")
+        logger.critical(
+            "紧急危机报警！已触发报警标记 alert=true，建议立即联系医护、家属或紧急救助。"
+        )
 
     def _llm_unified_analyze(self, user_message: str, current_phase: TransplantPhase) -> Optional[Dict]:
         """
@@ -792,7 +789,7 @@ class EnhancedChatAgent:
             return data
 
         except Exception as e:
-            print(f"综合分析 LLM 调用失败，将降级到各模块独立调用: {e}")
+            logger.exception("综合分析 LLM 调用失败，将降级到各模块独立调用")
             return None
 
     def _get_messages_for_api(self, user_message: str) -> List[Dict[str, str]]:
@@ -829,10 +826,10 @@ class EnhancedChatAgent:
         try:
             # 提取本轮关键信息
             emotional_state = cbt_analysis.get("emotional_state", {})
-            emotion = emotional_state.get("primary_emotion", "未知")
+            emotion = emotional_state.get("primary", "未知")
             severity = emotional_state.get("severity", 0)
             distortions = cbt_analysis.get("cognitive_distortions", [])
-            crisis_level = crisis_detection.get("risk_level", 0)
+            crisis_level = 10 if crisis_detection.get("alert", False) else 0
 
             # 构建本轮摘要提示
             if self.memory_core:
@@ -890,10 +887,10 @@ class EnhancedChatAgent:
 
             # 可选：打印记忆更新日志（调试用）
             if os.getenv("DEBUG_MEMORY_CORE", "false").lower() == "true":
-                print(f"\n[记忆中枢已更新] {new_memory[:100]}...\n")
+                logger.debug("记忆中枢已更新: %s...", new_memory[:100])
 
         except Exception as e:
-            print(f"更新记忆中枢失败: {str(e)}")
+            logger.exception("更新记忆中枢失败")
             # 失败时使用简单的记录
             if not self.memory_core:
                 self.memory_core = f"用户表达了关于心理健康的问题，情绪状态为{emotion}。"
@@ -906,7 +903,7 @@ class EnhancedChatAgent:
             # 加载危机历史
             self.crisis_module.load_crisis_history("crisis_history.json")
         except Exception as e:
-            print(f"加载持久化数据失败: {str(e)}")
+            logger.exception("加载持久化数据失败")
 
     def _load_user_state(self, filename: str = "user_state.json"):
         """加载用户状态（如骨髓移植分期）"""
@@ -919,7 +916,7 @@ class EnhancedChatAgent:
             if isinstance(data, dict):
                 self.user_state.update(data)
         except Exception as e:
-            print(f"加载用户状态失败: {str(e)}")
+            logger.exception("加载用户状态失败")
 
     def _save_user_state(self, filename: str = "user_state.json"):
         """保存用户状态（如骨髓移植分期）"""
@@ -928,7 +925,7 @@ class EnhancedChatAgent:
             with open(filepath, "w", encoding="utf-8") as f:
                 json.dump(self.user_state, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            print(f"保存用户状态失败: {str(e)}")
+            logger.exception("保存用户状态失败")
 
     def save_all_progress(self):
         """保存所有进度数据"""
@@ -941,9 +938,9 @@ class EnhancedChatAgent:
             self.crisis_module.save_crisis_history()
             # 保存用户状态
             self._save_user_state()
-            print("所有进度已保存")
+            logger.info("所有进度已保存")
         except Exception as e:
-            print(f"保存进度失败: {str(e)}")
+            logger.exception("保存进度失败")
 
     def get_comprehensive_report(self) -> Dict[str, any]:
         """获取综合报告"""
@@ -965,9 +962,9 @@ class EnhancedChatAgent:
             with open(filepath, 'r', encoding='utf-8') as f:
                 self.conversation_history = json.load(f)
         except FileNotFoundError:
-            print(f"历史文件 {filename} 不存在")
+            logger.warning("历史文件 %s 不存在", filename)
         except Exception as e:
-            print(f"加载历史文件失败: {str(e)}")
+            logger.exception("加载历史文件失败")
 
     def reset(self):
         """
@@ -1012,7 +1009,7 @@ class EnhancedChatAgent:
                     os.remove(filepath)
                     deleted_files.append(filename)
             except Exception as e:
-                print(f"删除文件 {filename} 失败: {str(e)}")
+                logger.exception("删除文件 %s 失败", filename)
 
         return {
             "success": True,
