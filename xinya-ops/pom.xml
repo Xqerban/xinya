@@ -103,7 +103,19 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>repackage</goal>  <!-- 关键：重新打包 -->
+                        </goals>
+                    </execution>
+                </executions>
                 <configuration>
+                    <mainClass>com.xinya.ops.XinyaOpsApplication</mainClass>
+                    <!-- 可执行JAR的文件名（去掉版本号） -->
+                    <finalName>${project.artifactId}</finalName>
+                    <!-- 排除开发工具 -->
+                    <excludeDevtools>false</excludeDevtools>
                     <excludes>
                         <exclude>
                             <groupId>org.projectlombok</groupId>
@@ -114,4 +126,5 @@
             </plugin>
         </plugins>
     </build>
+
 </project>

@@ -1,11 +1,11 @@
 {
-  "total_energy": 23698,
+  "total_energy": 23851,
   "dimension_scores": {
     "认知成长": 5460,
-    "情绪调节": 6475,
+    "情绪调节": 6550,
     "行为改变": 5301,
     "社交连接": 0,
-    "自我效能": 12
+    "自我效能": 20
   },
   "session_history": [
     {
@@ -46248,6 +46248,126 @@
         "intervention_needed": true,
         "recommended_technique": "行为激活"
       }
+    },
+    {
+      "timestamp": "2026-04-09T13:46:50.635752",
+      "user_message": "推荐一些我可以继续问的问题。",
+      "dimension_gains": {
+        "认知成长": 0,
+        "情绪调节": 15,
+        "行为改变": 0,
+        "社交连接": 0,
+        "自我效能": 4
+      },
+      "total_gain": 25,
+      "multiplier": 1.32,
+      "analysis": {
+        "emotional_state": {
+          "primary": "neutral",
+          "severity": 1,
+          "details": {}
+        },
+        "cognitive_distortions": [],
+        "problem_severity": 1,
+        "intervention_needed": false,
+        "recommended_technique": null
+      }
+    },
+    {
+      "timestamp": "2026-04-09T14:07:33.834899",
+      "user_message": "推荐一些我可以继续问的问题。",
+      "dimension_gains": {
+        "认知成长": 0,
+        "情绪调节": 15,
+        "行为改变": 0,
+        "社交连接": 0,
+        "自我效能": 4
+      },
+      "total_gain": 20,
+      "multiplier": 1.1,
+      "analysis": {
+        "emotional_state": {
+          "primary": "neutral",
+          "severity": 3,
+          "details": {}
+        },
+        "cognitive_distortions": [],
+        "problem_severity": 2,
+        "intervention_needed": false,
+        "recommended_technique": null
+      }
+    },
+    {
+      "timestamp": "2026-04-09T14:07:51.726200",
+      "user_message": "wowwjid",
+      "dimension_gains": {
+        "认知成长": 0,
+        "情绪调节": 15,
+        "行为改变": 0,
+        "社交连接": 0,
+        "自我效能": 0
+      },
+      "total_gain": 16,
+      "multiplier": 1.1,
+      "analysis": {
+        "emotional_state": {
+          "primary": "neutral",
+          "severity": 1,
+          "details": {}
+        },
+        "cognitive_distortions": [],
+        "problem_severity": 1,
+        "intervention_needed": false,
+        "recommended_technique": null
+      }
+    },
+    {
+      "timestamp": "2026-04-09T14:08:05.957851",
+      "user_message": "现在最让你担心的是什么？",
+      "dimension_gains": {
+        "认知成长": 0,
+        "情绪调节": 15,
+        "行为改变": 0,
+        "社交连接": 0,
+        "自我效能": 0
+      },
+      "total_gain": 16,
+      "multiplier": 1.1,
+      "analysis": {
+        "emotional_state": {
+          "primary": "neutral",
+          "severity": 1,
+          "details": {}
+        },
+        "cognitive_distortions": [],
+        "problem_severity": 1,
+        "intervention_needed": false,
+        "recommended_technique": null
+      }
+    },
+    {
+      "timestamp": "2026-04-09T14:08:33.001632",
+      "user_message": "想做一个让心情平静下来的呼吸练习吗？",
+      "dimension_gains": {
+        "认知成长": 0,
+        "情绪调节": 15,
+        "行为改变": 0,
+        "社交连接": 0,
+        "自我效能": 0
+      },
+      "total_gain": 16,
+      "multiplier": 1.1,
+      "analysis": {
+        "emotional_state": {
+          "primary": "calm",
+          "severity": 3,
+          "details": {}
+        },
+        "cognitive_distortions": [],
+        "problem_severity": 2,
+        "intervention_needed": false,
+        "recommended_technique": null
+      }
     }
   ],
   "achievements": [
@@ -46390,27 +46510,37 @@
       "check_type": "dimension_emotional",
       "id": "emotion_sage",
       "unlocked_at": "2026-04-07T17:07:13.109067"
+    },
+    {
+      "name": "平静之心",
+      "description": "连续5次对话保持积极情绪",
+      "category": "情绪",
+      "threshold": 5,
+      "reward": 60,
+      "check_type": "positive_emotion",
+      "id": "calm_heart",
+      "unlocked_at": "2026-04-09T14:08:33.001632"
     }
   ],
   "energy_trends": [
-    7,
-    14,
-    7,
     14,
     14,
     14,
     14,
     14,
-    14,
-    14
+    25,
+    20,
+    16,
+    16,
+    16
   ],
   "achievement_counters": {
     "mindfulness_count": 0,
     "cognitive_restructure_count": 0,
     "behavioral_activation_count": 0,
     "consecutive_days": 1,
-    "last_session_date": "2026-04-07",
-    "positive_emotion_count": 0,
+    "last_session_date": "2026-04-09",
+    "positive_emotion_count": 5,
     "crisis_overcome_count": 0,
     "high_quality_session_count": 0,
     "dimension_milestones": {
@@ -46421,5 +46551,5 @@
       "自我效能": 0
     }
   },
-  "last_updated": "2026-04-07T17:23:05.029156"
+  "last_updated": "2026-04-09T14:08:33.004338"
 }
