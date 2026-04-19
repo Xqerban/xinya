@@ -10,6 +10,22 @@ import re
 import json
 from openai import OpenAI
 from config import Config
+from keyword_library import (
+    CBT_EMOTION_KEYWORDS,
+    CBT_COGNITIVE_DISTORTION_KEYWORDS,
+    CBT_SEVERITY_KEYWORDS,
+    CBT_TRIGGER_KEYWORDS,
+    count_keyword_matches,
+    contains_any,
+)
+from keyword_library import (
+    CBT_EMOTION_KEYWORDS,
+    CBT_COGNITIVE_DISTORTION_KEYWORDS,
+    CBT_SEVERITY_KEYWORDS,
+    CBT_TRIGGER_KEYWORDS,
+    count_keyword_matches,
+    contains_any,
+)
 
 class CBTTechnique(Enum):
     """CBT技术类型枚举"""
@@ -129,28 +145,12 @@ class CBTModule:
 
     def _detect_emotion(self, message: str) -> Dict[str, any]:
         """检测情绪状态"""
-        # 负面情绪关键词
-        negative_emotions = {
-            "sadness": ["伤心", "难过", "沮丧", "失望", "绝望", "无助", "孤独"],
-            "anxiety": ["焦虑", "担心", "紧张", "害怕", "恐慌", "不安"],
-            "anger": ["生气", "愤怒", "烦躁", "生气", "怨恨"],
-            "hopelessness": ["无望", "绝望", "没有意义", "不想活", "自杀"],
-            "guilt": ["内疚", "自责", "后悔", "羞愧"]
-        }
-
-        # 正面情绪关键词
-        positive_emotions = {
-            "joy": ["开心", "快乐", "高兴", "满足", "感激"],
-            "calm": ["平静", "放松", "安心", "舒适"],
-            "hope": ["希望", "乐观", "期待", "信心"]
-        }
-
         message_lower = message.lower()
 
         # 计算情绪得分
         emotion_scores = {}
-        for emotion, keywords in {**negative_emotions, **positive_emotions}.items():
-            score = sum(1 for keyword in keywords if keyword in message_lower)
+        for emotion, keywords in CBT_EMOTION_KEYWORDS.items():
+            score = count_keyword_matches(message_lower, keywords)
             if score > 0:
                 emotion_scores[emotion] = score
 
@@ -174,43 +174,18 @@ class CBTModule:
     def _detect_cognitive_distortions(self, message: str) -> List[str]:
         """检测认知扭曲"""
         distortions = []
-
-        # 全或无思维
-        if any(word in message for word in ["总是", "从不", "完全", "一点都不"]):
-            distortions.append("all_or_nothing")
-
-        # 灾难化
-        if any(word in message for word in ["灾难", "毁灭", "最坏", "无法承受"]):
-            distortions.append("catastrophizing")
-
-        # 负面过滤
-        if any(word in message for word in ["只看到", "只记得", "忽略了"]):
-            distortions.append("negative_filter")
-
-        # 过度概括
-        if any(word in message for word in ["每次都", "所有人", "永远"]):
-            distortions.append("overgeneralization")
-
-        # 读心
-        if any(word in message for word in ["他一定", "她觉得", "他们认为"]):
-            distortions.append("mind_reading")
+        for distortion, keywords in CBT_COGNITIVE_DISTORTION_KEYWORDS.items():
+            if contains_any(message, keywords):
+                distortions.append(distortion)
 
         return distortions
 
     def _assess_problem_severity(self, message: str) -> int:
         """评估问题严重程度 (1-10)"""
-        severity_indicators = [
-            "自杀", "自残", "死亡", "死", "结束生命",  # 10分
-            "绝望", "无助", "崩溃", "撑不住",         # 8分
-            "焦虑", "恐慌", "害怕", "担心",           # 6分
-            "难过", "伤心", "沮丧", "失落",           # 4分
-            "困扰", "烦恼", "不舒服"                  # 2分
-        ]
-
         severity = 1
-        for i, indicators in enumerate(severity_indicators):
-            if any(indicator in message for indicator in indicators):
-                severity = max(severity, 10 - i * 2)
+        for rule in CBT_SEVERITY_KEYWORDS:
+            if contains_any(message, rule["keywords"]):
+                severity = max(severity, int(rule["score"]))
                 break
 
         return min(severity, 10)
@@ -520,12 +495,8 @@ class CBTModule:
 
     def _extract_trigger(self, message: str) -> Optional[str]:
         """提取情绪触发点"""
-        # 简单的关键词提取
-        trigger_keywords = ["因为", "由于", "当", "如果", "工作", "家庭", "朋友", "学习"]
-
-        for keyword in trigger_keywords:
+        for keyword in CBT_TRIGGER_KEYWORDS:
             if keyword in message:
-                # 提取包含关键词的句子片段
                 sentences = message.split("。")
                 for sentence in sentences:
                     if keyword in sentence and len(sentence) < 50:

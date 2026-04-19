@@ -2,7 +2,7 @@
 增强版对话智能体 - 集成CBT、心理能量和危机干预
 """
 from openai import OpenAI
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Iterator, Any
 import json
 import os
 import threading
@@ -10,7 +10,27 @@ from config import Config
 from cbt_module import CBTModule, CBTTechnique
 from energy_model import PsychologicalEnergyModel
 from crisis_module import CrisisInterventionModule
-from transplant_support import TransplantPhase, choose_intervention, get_template, Scenario
+from transplant_support import (
+    TransplantPhase,
+    choose_intervention,
+    get_template,
+    Scenario,
+    detect_phase_from_text,
+    detect_scenario,
+    TriggerResult,
+)
+
+FAST_OPENINGS = {
+    "hopelessness": "我在这里，先陪你把这一刻撑过去。",
+    "sadness": "我在听，你现在一定很不好受。",
+    "anxiety": "别急，我在，我们先慢一点。",
+    "anger": "我听到了你的憋闷和难受。",
+    "guilt": "先别急着责怪自己，我在听。",
+    "joy": "听到这里，我也替你感到一点开心。",
+    "calm": "我在，我们可以慢慢聊。",
+    "hope": "我在，这份期待很珍贵。",
+    "neutral": "我在，你可以慢慢说。",
+}
 
 class EnhancedChatAgent:
     """增强版对话智能体类 - 集成CBT、心理能量和危机干预"""
@@ -28,6 +48,7 @@ class EnhancedChatAgent:
         self.temperature = Config.TEMPERATURE
         self.max_tokens = Config.MAX_TOKENS
         self.system_prompt = Config.SYSTEM_PROMPT
+        self.last_result: Optional[Dict[str, Any]] = None
 
         # 对话历史
         self.conversation_history: List[Dict[str, str]] = [
@@ -52,6 +73,15 @@ class EnhancedChatAgent:
             "transplant_phase": TransplantPhase.PREP.value
         }
         self._load_user_state()
+
+    def build_fast_opening(self, user_message: str) -> str:
+        """生成两阶段流式的首句，用于快速首响。"""
+        emotional = self.cbt_module._detect_emotion(user_message)
+        primary = emotional.get("primary", "neutral")
+        opening = FAST_OPENINGS.get(primary, FAST_OPENINGS["neutral"])
+        if primary in {"sadness", "hopelessness", "anxiety", "anger", "guilt"}:
+            return opening + "\n\n"
+        return opening + " "
 
     def chat(self, user_message: str) -> Dict[str, any]:
         """
@@ -121,7 +151,7 @@ class EnhancedChatAgent:
                         template = get_template(tp["phase"], tp["scenario"])
                         if template:
                             self.set_transplant_phase(tp["phase"])
-                            response = self._rewrite_guidance_if_possible(template, user_message)
+                            response = template
                             response_type = "transplant_guidance"
                 else:
                     transplant_trigger = choose_intervention(
@@ -133,7 +163,7 @@ class EnhancedChatAgent:
                         template = get_template(transplant_trigger.phase, transplant_trigger.scenario)
                         if template:
                             self.set_transplant_phase(transplant_trigger.phase)
-                            response = self._rewrite_guidance_if_possible(template, user_message)
+                            response = template
                             response_type = "transplant_guidance"
 
             if response is None:
@@ -180,6 +210,127 @@ class EnhancedChatAgent:
             ).start()
 
         # 9. 返回完整结果
+        result = {
+            "response": response,
+            "response_type": response_type,
+            "cbt_analysis": cbt_analysis,
+            "crisis_detection": crisis_detection,
+            "energy_assessment": energy_assessment,
+            "energy_report": self.energy_model.get_energy_report() if energy_assessment else None
+        }
+        self.last_result = result
+        return result
+
+    def stream_chat(self, user_message: str) -> Iterator[str]:
+        """
+        流式链路采用模型主导：
+        - 前台仅做规则危机兜底与轻量模板提示判断；
+        - 正式回复立即进入模型流式输出；
+        - 结构化分析在回复完成后异步补做。
+        """
+        current_phase = self.get_transplant_phase()
+        cbt_analysis = self.cbt_module._rule_based_analyze_user_input(user_message)
+        crisis_detection = self.crisis_module._rule_based_detect_crisis(
+            user_message,
+            cbt_analysis.get("emotional_state", {})
+        )
+
+        if crisis_detection.get("alert", False):
+            self.crisis_module._record_crisis_event(user_message)
+            self.crisis_module._trigger_alert({"alert": True})
+
+        conversation_data = {
+            "user_message": user_message,
+            "analysis": cbt_analysis,
+            "crisis_detection": crisis_detection
+        }
+
+        if crisis_detection.get("alert", False):
+            response = ""
+            response_type = "crisis_alert"
+            self.last_result = self._finalize_chat_turn(
+                user_message=user_message,
+                response=response,
+                response_type=response_type,
+                cbt_analysis=cbt_analysis,
+                crisis_detection=crisis_detection,
+                conversation_data=conversation_data,
+                current_phase=current_phase,
+                run_post_analysis=False,
+            )
+            return iter(())
+
+        response_context = self._build_stream_response_context(
+            user_message=user_message,
+            current_phase=current_phase,
+            analysis=cbt_analysis,
+        )
+        if response_context.get("phase") and response_context["phase"] != current_phase:
+            self.set_transplant_phase(response_context["phase"])
+
+        return self._stream_and_finalize_cbt_response(
+            user_message=user_message,
+            analysis=cbt_analysis,
+            crisis_detection=crisis_detection,
+            conversation_data=conversation_data,
+            response_type="cbt_response",
+            current_phase=current_phase,
+            run_post_analysis=True,
+            response_context=response_context,
+        )
+
+    def _finalize_chat_turn(
+        self,
+        user_message: str,
+        response: str,
+        response_type: str,
+        cbt_analysis: Dict,
+        crisis_detection: Dict,
+        conversation_data: Dict,
+        current_phase: Optional[TransplantPhase] = None,
+        run_post_analysis: bool = False,
+    ) -> Dict[str, Any]:
+        """统一完成历史写入、画像更新、能量评估和记忆更新。"""
+        self.conversation_history.append({
+            "role": "user",
+            "content": user_message
+        })
+
+        serialized_cbt_analysis = self._serialize_analysis_data(cbt_analysis)
+        serialized_crisis_detection = self._serialize_analysis_data(crisis_detection)
+
+        self.conversation_history.append({
+            "role": "assistant",
+            "content": response,
+            "metadata": {
+                "response_type": response_type,
+                "cbt_analysis": serialized_cbt_analysis,
+                "crisis_detection": serialized_crisis_detection,
+                "user_state": self.user_state
+            }
+        })
+
+        self.cbt_module.update_user_profile(cbt_analysis, user_message)
+
+        energy_assessment = None
+        if not crisis_detection.get("alert", False):
+            conversation_data["cbt_response"] = response
+            energy_assessment = self.energy_model.assess_conversation_quality(conversation_data)
+
+        if Config.HISTORY_COMPRESSION_ENABLED:
+            threading.Thread(
+                target=self._update_memory_core,
+                args=(user_message, response, cbt_analysis, crisis_detection),
+                daemon=True
+            ).start()
+
+        if run_post_analysis:
+            threading.Thread(
+                target=self._run_post_response_analysis,
+                args=(user_message, response, current_phase),
+                daemon=True,
+            ).start()
+
         return {
             "response": response,
             "response_type": response_type,
@@ -188,6 +339,76 @@ class EnhancedChatAgent:
             "energy_assessment": energy_assessment,
             "energy_report": self.energy_model.get_energy_report() if energy_assessment else None
         }
+
+    def _stream_static_response(
+        self,
+        user_message: str,
+        response: str,
+        response_type: str,
+        cbt_analysis: Dict,
+        crisis_detection: Dict,
+        conversation_data: Dict,
+        chunk_size: int = 28,
+    ) -> Iterator[str]:
+        """将固定文本按小片段流式输出。"""
+        chunks = [response[i:i + chunk_size] for i in range(0, len(response), chunk_size)] or [response]
+        for chunk in chunks:
+            yield chunk
+
+        self.last_result = self._finalize_chat_turn(
+            user_message=user_message,
+            response=response,
+            response_type=response_type,
+            cbt_analysis=cbt_analysis,
+            crisis_detection=crisis_detection,
+            conversation_data=conversation_data,
+        )
+
+    def _stream_and_finalize_cbt_response(
+        self,
+        user_message: str,
+        analysis: Dict,
+        crisis_detection: Dict,
+        conversation_data: Dict,
+        response_type: str,
+        current_phase: Optional[TransplantPhase] = None,
+        run_post_analysis: bool = False,
+        response_context: Optional[Dict[str, Any]] = None,
+    ) -> Iterator[str]:
+        """流式输出 CBT 回复，并在结束后补做落库与评估。"""
+        response_parts: List[str] = []
+
+        try:
+            stream = self._create_response_stream(user_message, analysis, response_context=response_context)
+            first_chunk = True
+            for chunk in stream:
+                delta = getattr(chunk.choices[0].delta, "content", None)
+                if delta:
+                    text = delta
+                    if first_chunk:
+                        text = text.lstrip()
+                        first_chunk = False
+                        if not text:
+                            continue
+                    response_parts.append(text)
+                    yield text
+        except Exception as e:
+            error_msg = f"发生错误: {str(e)}"
+            print(error_msg)
+            response_parts = [error_msg]
+            yield error_msg
+        finally:
+            full_response = "".join(response_parts)
+            self.last_result = self._finalize_chat_turn(
+                user_message=user_message,
+                response=full_response,
+                response_type=response_type,
+                cbt_analysis=analysis,
+                crisis_detection=crisis_detection,
+                conversation_data=conversation_data,
+                current_phase=current_phase,
+                run_post_analysis=run_post_analysis,
+            )
 
     def get_transplant_phase(self) -> TransplantPhase:
         """获取当前骨髓移植分期"""
@@ -230,57 +451,150 @@ class EnhancedChatAgent:
     def _generate_cbt_response(self, user_message: str, analysis: Dict) -> str:
         """生成回复（含CBT引导）——主回复与CBT建议合并为一次LLM调用"""
         try:
-            messages_for_api = self._get_messages_for_api(user_message)
-            need_cbt = self._should_add_cbt_guidance(analysis)
-
-            if need_cbt and analysis.get("recommended_technique"):
-                # ===== CBT引导注入system，一次调用同时生成主回复+CBT建议 =====
-                technique = analysis["recommended_technique"]
-                technique_name = technique.value if hasattr(technique, "value") else str(technique)
-                emotional = analysis.get("emotional_state", {})
-                severity = emotional.get("severity", 5)
-                emotion = emotional.get("primary", "neutral")
-                distortions = analysis.get("cognitive_distortions", [])
-                distortions_str = "、".join(distortions) if distortions else "无"
-
-                cbt_instruction = (
-                    f"[本转CBT引导指令]当前用户情绪：{emotion}（强度{severity}/10），"
-                    f"认知性扰曲：{distortions_str}。"
-                    f"请用120字以内简洁回应用户，之后另起一段，"
-                    f"以「如果你愿意，我们可以试一个小练习：」开头，"
-                    f"用温暖口语化的方式提供一段{technique_name}引导（80-120字，不使用编号/列表）。"
-                    f"主回复和CBT引导之间用两个换行分隔，总字数控制在280字以内。"
-                )
-
-                # 在 user 消息前插入 system 指令
-                user_msg = messages_for_api[-1]
-                augmented = messages_for_api[:-1] + [
-                    {"role": "system", "content": cbt_instruction},
-                    user_msg
-                ]
-
-                api_response = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=augmented,
-                    temperature=self.temperature,
-                    max_tokens=450
-                )
-                return api_response.choices[0].message.content
-
-            else:
-                # 无需CBT引导，正常生成回复
-                api_response = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=messages_for_api,
-                    temperature=self.temperature,
-                    max_tokens=380
-                )
-                return api_response.choices[0].message.content
-
+            api_response = self._create_response_stream(user_message, analysis, stream=False)
+            return api_response.choices[0].message.content
         except Exception as e:
             error_msg = f"发生错误: {str(e)}"
             print(error_msg)
             return error_msg
+
+    def _create_response_stream(
+        self,
+        user_message: str,
+        analysis: Dict,
+        stream: bool = True,
+        response_context: Optional[Dict[str, Any]] = None,
+    ):
+        """创建回复请求，支持普通返回和流式返回。"""
+        messages_for_api = self._get_messages_for_api(user_message)
+        response_context = response_context or {}
+        need_cbt = self._should_add_cbt_guidance(analysis)
+
+        extra_system_messages = []
+        template = response_context.get("template")
+        scenario = response_context.get("scenario")
+        if template and scenario:
+            scenario_name = scenario.value if hasattr(scenario, "value") else str(scenario)
+            extra_system_messages.append({
+                "role": "system",
+                "content": (
+                    f"[移植情境提示] 当前识别到的情境是：{scenario_name}。"
+                    f"请参考下面这段陪伴方向，自然融入你的回复，不要照抄，不要说你在引用模板，"
+                    f"保持口语化、温暖、连续输出：{template}"
+                )
+            })
+
+        if need_cbt and analysis.get("recommended_technique"):
+            technique = analysis["recommended_technique"]
+            technique_name = technique.value if hasattr(technique, "value") else str(technique)
+            emotional = analysis.get("emotional_state", {})
+            severity = emotional.get("severity", 5)
+            emotion = emotional.get("primary", "neutral")
+            distortions = analysis.get("cognitive_distortions", [])
+            distortions_str = "、".join(distortions) if distortions else "无"
+
+            cbt_instruction = (
+                f"[本转CBT引导指令]当前用户情绪：{emotion}（强度{severity}/10），"
+                f"认知性扰曲：{distortions_str}。"
+                f"请先用自然、简洁、共情的方式回应用户，"
+                f"如果合适，再自然引入一段{technique_name}方向的小引导。"
+                f"不要使用编号/列表，不要生硬分段，总字数控制在280字以内。"
+            )
+
+            user_msg = messages_for_api[-1]
+            messages = messages_for_api[:-1] + extra_system_messages + [
+                {"role": "system", "content": cbt_instruction},
+                user_msg
+            ]
+            max_tokens = 450
+        else:
+            user_msg = messages_for_api[-1]
+            messages = messages_for_api[:-1] + extra_system_messages + [user_msg]
+            max_tokens = 380
+
+        return self.client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            temperature=self.temperature,
+            max_tokens=max_tokens,
+            stream=stream,
+        )
+
+    def _build_stream_response_context(
+        self,
+        user_message: str,
+        current_phase: TransplantPhase,
+        analysis: Dict,
+    ) -> Dict[str, Any]:
+        """为模型主导流式回复构造轻量提示上下文。"""
+        context: Dict[str, Any] = {
+            "phase": current_phase,
+            "scenario": None,
+            "template": None,
+        }
+        if not getattr(Config, "TRANSPLANT_SUPPORT_ENABLED", True):
+            return context
+
+        trigger = self._detect_transplant_trigger_fast(
+            user_message=user_message,
+            current_phase=current_phase,
+            emotional_severity=analysis.get("emotional_state", {}).get("severity", 0),
+        )
+        if not trigger.should_trigger or not trigger.scenario:
+            return context
+
+        template = get_template(trigger.phase, trigger.scenario)
+        if not template:
+            return context
+
+        context["phase"] = trigger.phase
+        context["scenario"] = trigger.scenario
+        context["template"] = template
+        return context
+
+    def _detect_transplant_trigger_fast(
+        self,
+        user_message: str,
+        current_phase: TransplantPhase,
+        emotional_severity: int = 0,
+    ) -> TriggerResult:
+        """轻量移植情境判断：只用于给模型追加提示，不直接替代回复。"""
+        inferred_phase = detect_phase_from_text(user_message)
+        phase = inferred_phase or current_phase
+        scenario = detect_scenario(user_message, phase)
+        if not scenario:
+            return TriggerResult(False, phase, None, 0.0, "未命中情境关键词")
+
+        base_conf = 0.65
+        if emotional_severity >= 6:
+            base_conf += 0.1
+
+        return TriggerResult(True, phase, scenario, min(base_conf, 0.95), "命中情境关键词")
+
+    def _run_post_response_analysis(
+        self,
+        user_message: str,
+        response: str,
+        current_phase: Optional[TransplantPhase],
+    ):
+        """模型主导流式链路下，回复后异步补做 LLM 分析与状态校正。"""
+        if current_phase is None:
+            current_phase = self.get_transplant_phase()
+
+        if not (getattr(Config, "CBT_LLM_ENABLED", True) or getattr(Config, "CRISIS_LLM_DETECTION_ENABLED", True)):
+            return
+
+        try:
+            unified = self._llm_unified_analyze(user_message, current_phase)
+            if not unified:
+                return
+
+            tp = unified.get("transplant") or {}
+            phase = tp.get("phase")
+            if isinstance(phase, TransplantPhase) and phase != self.get_transplant_phase():
+                self.set_transplant_phase(phase)
+        except Exception as e:
+            print(f"流式后置分析失败: {e}")
 
     def _should_add_cbt_guidance(self, analysis: Dict) -> bool:
         """判断是否需要追加CBT引导（危机由 crisis_module 处理）"""
@@ -304,38 +618,6 @@ class EnhancedChatAgent:
             return True
 
         return False
-
-    def _rewrite_guidance_if_possible(self, template: str, user_message: str) -> str:
-        """
-        对引导语进行轻量改写，保持核心含义不变，避免机械背诵。
-        - 如果API不可用/报错，直接回退原模板。
-        """
-        try:
-            prompt = (
-                '你是"小芽"，在不改变核心含义与关怀语气的前提下，'
-                '把下面的引导语做轻量改写：整体长度相近，中文自然，不要出现"改写/模板/语料库"等词，'
-                '不要夸大疗效，不要提供医疗处方，不要使用编号列表。'
-                '重要：只改写给定的引导语，不要添加额外的CBT练习或建议，不要重复用户的话。\n\n'
-                f'用户刚刚说：{user_message}\n\n'
-                f'引导语：{template}\n\n'
-                '请输出改写后的引导语（只输出改写后的内容，不要添加其他内容）：'
-            )
-
-            api_response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": self.system_prompt},
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=min(max(self.temperature, 0.6), 0.95),
-                max_tokens=min(self.max_tokens, 600),
-            )
-            rewritten = api_response.choices[0].message.content
-            if rewritten and rewritten.strip():
-                return rewritten.strip()
-            return template
-        except Exception:
-            return template
 
     def _crisis_alert_callback(self, crisis_data: Dict):
         """危机报警回调"""

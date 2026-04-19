@@ -16,6 +16,12 @@ import re
 import json
 from openai import OpenAI
 from config import Config
+from keyword_library import (
+    TRANSPLANT_PHASE_KEYWORDS,
+    TRANSPLANT_COMMON_SCENARIO_KEYWORDS,
+    TRANSPLANT_PHASE_SCENARIO_KEYWORDS,
+    contains_any,
+)
 
 
 class TransplantPhase(str, Enum):
@@ -134,12 +140,11 @@ def normalize_text(text: str) -> str:
 
 def detect_phase_from_text(text: str) -> Optional[TransplantPhase]:
     t = normalize_text(text)
-    # 很轻量的自动推断：用户明确提及“回输/移植后/血象”等时，提升对应分期。
-    if any(k in t for k in ["回输", "输回", "细胞回输", "回输日", "今天回输", "输注", "干细胞"]):
+    if contains_any(t, TRANSPLANT_PHASE_KEYWORDS[TransplantPhase.KEY.value]):
         return TransplantPhase.KEY
-    if any(k in t for k in ["出院", "康复", "恢复期", "血象", "白细胞", "血小板", "复查", "恢复"]):
+    if contains_any(t, TRANSPLANT_PHASE_KEYWORDS[TransplantPhase.RECOVERY.value]):
         return TransplantPhase.RECOVERY
-    if any(k in t for k in ["预处理", "化疗", "放疗", "准备期", "入仓", "入舱", "层流", "移植前"]):
+    if contains_any(t, TRANSPLANT_PHASE_KEYWORDS[TransplantPhase.PREP.value]):
         return TransplantPhase.PREP
     return None
 
@@ -147,44 +152,14 @@ def detect_phase_from_text(text: str) -> Optional[TransplantPhase]:
 def detect_scenario(text: str, phase: TransplantPhase) -> Optional[Scenario]:
     t = normalize_text(text)
 
-    # 共用线索
-    if any(k in t for k in ["呼吸", "吸气", "呼气", "憋气", "喘", "放松练习"]):
+    if contains_any(t, TRANSPLANT_COMMON_SCENARIO_KEYWORDS[Scenario.BREATHING.value]):
         return Scenario.BREATHING if phase == TransplantPhase.PREP else Scenario.SEVERE_DISCOMFORT
 
-    # PREP
-    if phase == TransplantPhase.PREP:
-        if any(k in t for k in ["你好", "您好", "初次", "第一次", "刚来", "认识你", "你是谁"]):
-            return Scenario.FIRST_MEET
-        if any(k in t for k in ["化疗", "预处理", "反应", "恶心", "呕吐", "难受", "副作用"]):
-            return Scenario.CHEMO_PREP
-        if any(k in t for k in ["希望之树", "叶子", "树", "进步", "打卡"]):
-            return Scenario.HOPE_TREE
-        if any(k in t for k in ["挺不过", "扛不住", "我不行", "太难", "没有力量", "以前我也", "过去"]):
-            return Scenario.INNER_STRENGTH
-
-    # KEY
-    if phase == TransplantPhase.KEY:
-        if any(k in t for k in ["回输", "输回", "细胞", "干细胞", "输注", "今天"]):
-            return Scenario.INFUSION_DAY
-        if any(k in t for k in ["疼", "痛", "恶心", "吐", "反胃", "难受", "受不了", "折磨"]):
-            return Scenario.SEVERE_DISCOMFORT
-        if any(k in t for k in ["微光", "今天的好事", "一点点好", "小事", "收藏"]):
-            return Scenario.MICRO_LIGHT
-        if any(k in t for k in ["出院后", "以后", "未来", "康复后", "最想做", "回家想做"]):
-            return Scenario.FUTURE_SCENE
-
-    # RECOVERY
-    if phase == TransplantPhase.RECOVERY:
-        if any(k in t for k in ["希望之树", "成长日记", "回顾", "看看以前", "记录"]):
-            return Scenario.REVIEW_HOPE_TREE
-        if any(k in t for k in ["血象", "白细胞", "血小板", "波动", "又掉了", "情绪低落", "好害怕"]):
-            return Scenario.BLOOD_FLUCTUATION
-        if any(k in t for k in ["感恩", "谢谢", "感谢", "传递"]):
-            return Scenario.GRATITUDE
-        if any(k in t for k in ["小目标", "打卡", "完成", "坚持", "今天做到了", "坐起来", "走了"]):
-            return Scenario.SMALL_GOALS
-        if any(k in t for k in ["出院", "回家", "回到生活", "以后生活", "重生"]):
-            return Scenario.DISCHARGE_LIFE
+    phase_scenarios = TRANSPLANT_PHASE_SCENARIO_KEYWORDS.get(phase.value, {})
+    for scenario in Scenario:
+        keywords = phase_scenarios.get(scenario.value)
+        if keywords and contains_any(t, keywords):
+            return scenario
 
     return None
 

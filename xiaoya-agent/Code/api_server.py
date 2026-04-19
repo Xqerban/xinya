@@ -1,9 +1,9 @@
 """
 小芽 Agent API 服务
 """
+import json
 import threading
-from flask import Flask, request, jsonify
-from functools import wraps
+from flask import Flask, request, jsonify, Response, stream_with_context
 import traceback
 from typing import Dict, Any, Optional
 from simple_agent import EnhancedChatAgent
@@ -139,6 +139,10 @@ def build_crisis_assessment(crisis_detection: Dict, cbt_analysis: Dict) -> Dict[
         "mindfulnessGuide": mindfulness_guide
     }
 
+def build_sse_event(event: str, data: Dict[str, Any]) -> str:
+    """构建 SSE 事件数据"""
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
 
 @app.route('/v1/psych/chat', methods=['POST'])
 def psych_chat():
@@ -148,28 +152,28 @@ def psych_chat():
     """
     try:
         data = request.get_json()
-        
+
         # 提取请求参数
         session_id = data.get("sessionId")
         patient_context = data.get("patientContext", {})
         history = data.get("history", [])
         message = data.get("message", "")
-        
+
         if not session_id or not message:
             return jsonify({
                 "error": "invalid_request",
                 "message": "sessionId 和 message 不能为空"
             }), 400
-        
+
         # 获取或创建 Agent
         agent = get_or_create_agent(session_id)
-        
+
         # 更新患者上下文
         stage = patient_context.get("stage", "PRETREATMENT")
         phase = map_stage_to_phase(stage)
         if agent.get_transplant_phase() != phase:
             agent.set_transplant_phase(phase)
-        
+
         # 重建对话历史（如果需要）
         # 注意：这里简化处理，实际可能需要更复杂的历史管理
         if history and len(agent.conversation_history) <= 1:
@@ -179,36 +183,62 @@ def psych_chat():
                     "role": msg["role"],
                     "content": msg["content"]
                 })
-        
-        # 调用 Agent 进行对话
-        result = agent.chat(message)
-        
-        # 构建响应
-        response = {
-            "reply": result["response"],
-            "energyAssessment": build_energy_assessment(result.get("energy_assessment")),
-            "crisisAssessment": build_crisis_assessment(
-                result.get("crisis_detection", {}),
-                result.get("cbt_analysis", {})
-            ),
-            "recommendedQuestions": [
-                "现在最让你担心的是什么？",
-                "想做一个让心情平静下来的呼吸练习吗？",
-                "今天有什么让你感到温暖的事情吗？"
-            ],
-            "agentMeta": {
-                "model": Config.MODEL_NAME,
-                "tokensUsed": 0,  # 可以从 API 响应中获取
-                "latencyMs": 0    # 可以计时
+
+        def generate_stream():
+            try:
+                yield build_sse_event("start", {
+                    "sessionId": session_id,
+                    "message": "stream started"
+                })
+
+                opening = agent.build_fast_opening(message)
+                if opening:
+                    yield build_sse_event("delta", {"content": opening, "stage": "opening"})
+
+                for chunk in agent.stream_chat(message):
+                    yield build_sse_event("delta", {"content": chunk, "stage": "response"})
+
+                result = agent.last_result or {}
+                response = {
+                    "reply": result.get("response", ""),
+                    "energyAssessment": build_energy_assessment(result.get("energy_assessment")),
+                    "crisisAssessment": build_crisis_assessment(
+                        result.get("crisis_detection", {}),
+                        result.get("cbt_analysis", {})
+                    ),
+                    "recommendedQuestions": [
+                        "现在最让你担心的是什么？",
+                        "想做一个让心情平静下来的呼吸练习吗？",
+                        "今天有什么让你感到温暖的事情吗？"
+                    ],
+                    "agentMeta": {
+                        "model": Config.MODEL_NAME,
+                        "tokensUsed": 0,
+                        "latencyMs": 0
+                    }
+                }
+
+                if Config.AUTO_SAVE_PROGRESS:
+                    threading.Thread(target=agent.save_all_progress, daemon=True).start()
+
+                yield build_sse_event("done", response)
+            except Exception as e:
+                print(f"处理流式请求时发生错误: {str(e)}")
+                traceback.print_exc()
+                yield build_sse_event("error", {
+                    "error": "internal_error",
+                    "message": f"服务器内部错误: {str(e)}"
+                })
+
+        return Response(
+            stream_with_context(generate_stream()),
+            mimetype='text/event-stream',
+            headers={
+                'Cache-Control': 'no-cache',
+                'X-Accel-Buffering': 'no'
             }
-        }
-        
-        # 自动保存进度（异步，不阻塞响应）
-        if Config.AUTO_SAVE_PROGRESS:
-            threading.Thread(target=agent.save_all_progress, daemon=True).start()
-        
-        return jsonify(response), 200
-        
+        )
+
     except Exception as e:
         print(f"处理请求时发生错误: {str(e)}")
         traceback.print_exc()
@@ -228,7 +258,6 @@ def psych_recommendations():
         data = request.get_json()
         
         patient_context = data.get("patientContext", {})
-        recent_history = data.get("recentHistory", [])
         
         # 根据患者状态和历史生成推荐问题
         stage = patient_context.get("stage", "PRETREATMENT")
