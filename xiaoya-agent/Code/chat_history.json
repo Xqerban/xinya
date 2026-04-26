@@ -5,26 +5,29 @@
   },
   {
     "role": "user",
-    "content": "111"
+    "content": "我明天不想醒了"
   },
   {
     "role": "assistant",
-    "content": "我注意到你只输入了“111”，这可能是测试信息，或者你想表达什么但还没完全准备好。如果你愿意分享更多，我会在这里倾听，并尽力从认知行为疗法的角度为你提供支持。",
+    "content": "",
     "metadata": {
-      "response_type": "cbt_response",
+      "response_type": "crisis_alert",
       "cbt_analysis": {
         "emotional_state": {
-          "primary": "neutral",
-          "severity": "1",
+          "primary": "hopelessness",
+          "severity": "9",
           "details": {}
         },
-        "cognitive_distortions": [],
-        "problem_severity": "1",
-        "intervention_needed": "False",
-        "recommended_technique": "问题解决"
+        "cognitive_distortions": [
+          "catastrophizing",
+          "all_or_nothing"
+        ],
+        "problem_severity": "9",
+        "intervention_needed": "True",
+        "recommended_technique": "认知重构"
       },
       "crisis_detection": {
-        "alert": "False"
+        "alert": "True"
       },
       "user_state": {
         "transplant_phase": "移植前准备期"
@@ -33,26 +36,29 @@
   },
   {
     "role": "user",
-    "content": "111"
+    "content": "我想睡一辈子"
   },
   {
     "role": "assistant",
-    "content": "你好，我注意到你发送了“111”。如果你愿意分享更多，我很乐意倾听，并和你一起探讨可能困扰你的事情。我们可以从你现在的感受或想法开始聊起。",
+    "content": "",
     "metadata": {
-      "response_type": "cbt_response",
+      "response_type": "crisis_alert",
       "cbt_analysis": {
         "emotional_state": {
-          "primary": "neutral",
-          "severity": "1",
+          "primary": "hopelessness",
+          "severity": "9",
           "details": {}
         },
-        "cognitive_distortions": [],
-        "problem_severity": "1",
-        "intervention_needed": "False",
-        "recommended_technique": "问题解决"
+        "cognitive_distortions": [
+          "catastrophizing",
+          "all_or_nothing"
+        ],
+        "problem_severity": "9",
+        "intervention_needed": "True",
+        "recommended_technique": "认知重构"
       },
       "crisis_detection": {
-        "alert": "False"
+        "alert": "True"
       },
       "user_state": {
         "transplant_phase": "移植前准备期"

@@ -63,5 +63,15 @@
     "timestamp": "2026-04-18T20:25:00.553556",
     "user_message": "我不想活了",
     "severity_score": null
+  },
+  {
+    "timestamp": "2026-04-26T14:46:16.980831",
+    "user_message": "我明天不想醒了",
+    "severity_score": null
+  },
+  {
+    "timestamp": "2026-04-26T14:46:38.940002",
+    "user_message": "我想睡一辈子",
+    "severity_score": null
   }
 ]

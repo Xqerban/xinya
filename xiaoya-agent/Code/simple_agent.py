@@ -227,10 +227,10 @@ class EnhancedChatAgent:
 
     def stream_chat(self, user_message: str) -> Iterator[str]:
         """
-        流式链路采用模型主导：
-        - 前台仅做规则危机兜底与轻量模板提示判断；
-        - 正式回复立即进入模型流式输出；
-        - 结构化分析在回复完成后异步补做。
+        流式链路采用“规则快筛 + 必要时前置轻量分析”：
+        - 规则已命中情绪、危机、CBT 或移植情境时，直接进入模型流式回复；
+        - 规则没有命中有效信号时，先做一次轻量综合分析，补齐当前轮判断；
+        - 正式回复仍由模型流式输出。
         """
         current_phase = self.get_transplant_phase()
         cbt_analysis = self.cbt_module._rule_based_analyze_user_input(user_message)
@@ -238,6 +238,22 @@ class EnhancedChatAgent:
             user_message,
             cbt_analysis.get("emotional_state", {})
         )
+        response_context = self._build_stream_response_context(
+            user_message=user_message,
+            current_phase=current_phase,
+            analysis=cbt_analysis,
+        )
+
+        preflight_unified = None
+        if self._should_run_preflight_analysis(user_message, cbt_analysis, crisis_detection, response_context):
+            preflight_unified = self._llm_unified_analyze(user_message, current_phase)
+            if preflight_unified:
+                cbt_analysis = self._analysis_from_unified(preflight_unified)
+                crisis_detection = self._crisis_detection_from_unified(preflight_unified)
+                response_context = self._build_stream_response_context_from_unified(
+                    preflight_unified,
+                    current_phase,
+                )
 
         if crisis_detection.get("alert", False):
             self.crisis_module._record_crisis_event(user_message)
@@ -264,11 +280,6 @@ class EnhancedChatAgent:
             )
             return iter(())
 
-        response_context = self._build_stream_response_context(
-            user_message=user_message,
-            current_phase=current_phase,
-            analysis=cbt_analysis,
-        )
         if response_context.get("phase") and response_context["phase"] != current_phase:
             self.set_transplant_phase(response_context["phase"])
 
@@ -279,7 +290,7 @@ class EnhancedChatAgent:
             conversation_data=conversation_data,
             response_type="cbt_response",
             current_phase=current_phase,
-            run_post_analysis=True,
+            run_post_analysis=preflight_unified is None,
             response_context=response_context,
         )
 
@@ -521,6 +532,87 @@ class EnhancedChatAgent:
             max_tokens=max_tokens,
             stream=stream,
         )
+
+    def _should_run_preflight_analysis(
+        self,
+        user_message: str,
+        cbt_analysis: Dict,
+        crisis_detection: Dict,
+        response_context: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """规则未命中有效信号时，才前置调用一次轻量综合分析。"""
+        if not (getattr(Config, "CBT_LLM_ENABLED", True) or getattr(Config, "CRISIS_LLM_DETECTION_ENABLED", True) or getattr(Config, "TRANSPLANT_LLM_SCENARIO_ENABLED", True)):
+            return False
+
+        normalized = (user_message or "").strip().lower()
+        casual_inputs = {"你好", "您好", "hello", "hi", "嗨", "在吗", "小芽", "谢谢", "好的", "嗯", "哦"}
+        if len(normalized) <= 8 and normalized in casual_inputs:
+            return False
+
+        emotional = (cbt_analysis or {}).get("emotional_state", {}) or {}
+        primary = emotional.get("primary", "neutral")
+        severity = int(emotional.get("severity", 0) or 0)
+        distortions = (cbt_analysis or {}).get("cognitive_distortions", []) or []
+        has_cbt_signal = self._should_add_cbt_guidance(cbt_analysis)
+        has_crisis_signal = bool((crisis_detection or {}).get("alert", False))
+        has_transplant_signal = bool((response_context or {}).get("scenario"))
+
+        return not any([
+            primary != "neutral" and severity > 1,
+            distortions,
+            has_cbt_signal,
+            has_crisis_signal,
+            has_transplant_signal,
+        ])
+
+    def _analysis_from_unified(self, unified: Dict) -> Dict[str, Any]:
+        """将综合分析结果转换为当前链路使用的 CBT analysis 结构。"""
+        return {
+            "emotional_state": unified.get("emotional_state", {"primary": "neutral", "severity": 1, "details": {}}),
+            "cognitive_distortions": unified.get("cognitive_distortions", []),
+            "problem_severity": unified.get("problem_severity", 1),
+            "intervention_needed": unified.get("intervention_needed", False),
+            "recommended_technique": unified.get("recommended_technique"),
+        }
+
+    def _crisis_detection_from_unified(self, unified: Dict) -> Dict[str, bool]:
+        """将综合分析里的危机分数转换为当前链路的报警标记。"""
+        crisis_info = unified.get("crisis") or {}
+        severity_score = int(crisis_info.get("severity_score", 0) or 0)
+        threshold = getattr(Config, "CRISIS_ALERT_THRESHOLD", 10)
+        alert = bool(crisis_info.get("has_crisis", False)) and severity_score >= threshold
+        return {"alert": alert}
+
+    def _build_stream_response_context_from_unified(
+        self,
+        unified: Dict,
+        current_phase: TransplantPhase,
+    ) -> Dict[str, Any]:
+        """基于前置综合分析结果构造移植情境提示上下文。"""
+        context: Dict[str, Any] = {
+            "phase": current_phase,
+            "scenario": None,
+            "template": None,
+        }
+        if not getattr(Config, "TRANSPLANT_SUPPORT_ENABLED", True):
+            return context
+
+        transplant = unified.get("transplant") or {}
+        phase = transplant.get("phase") if isinstance(transplant.get("phase"), TransplantPhase) else current_phase
+        scenario = transplant.get("scenario")
+        if not transplant.get("should_trigger") or not isinstance(scenario, Scenario):
+            context["phase"] = phase
+            return context
+
+        template = get_template(phase, scenario)
+        if not template:
+            context["phase"] = phase
+            return context
+
+        context["phase"] = phase
+        context["scenario"] = scenario
+        context["template"] = template
+        return context
 
     def _build_stream_response_context(
         self,
