@@ -18,6 +18,7 @@ from keyword_library import (
     ENERGY_MINDFULNESS_INDICATORS,
     ENERGY_COGNITIVE_RESTRUCTURE_INDICATORS,
     ENERGY_BEHAVIORAL_ACTIVATION_INDICATORS,
+    POSITIVE_EMOTION_LABELS,
     contains_any,
 )
 
@@ -641,8 +642,7 @@ class PsychologicalEnergyModel:
         primary_emotion = emotional_state.get("primary", "")
         severity = emotional_state.get("severity", 5)
         
-        positive_emotions = ["joy", "calm", "hope", "grateful"]
-        if primary_emotion in positive_emotions or severity <= 3:
+        if primary_emotion in POSITIVE_EMOTION_LABELS or severity <= 3:
             self.achievement_counters["positive_emotion_count"] += 1
         else:
             # 重置连续积极情绪计数

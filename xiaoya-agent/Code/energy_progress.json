@@ -1,9 +1,9 @@
 {
-  "total_energy": 3010,
+  "total_energy": 3064,
   "dimension_scores": {
     "认知成长": 45,
-    "情绪调节": 920,
-    "行为改变": 51,
+    "情绪调节": 965,
+    "行为改变": 54,
     "社交连接": 0,
     "自我效能": 0
   },
@@ -1797,6 +1797,80 @@
         "intervention_needed": true,
         "recommended_technique": "正念练习"
       }
+    },
+    {
+      "timestamp": "2026-05-05T18:11:16.668654",
+      "user_message": "你好",
+      "dimension_gains": {
+        "认知成长": 0,
+        "情绪调节": 15,
+        "行为改变": 0,
+        "社交连接": 0,
+        "自我效能": 0
+      },
+      "total_gain": 19,
+      "multiplier": 1.32,
+      "analysis": {
+        "emotional_state": {
+          "primary": "neutral",
+          "severity": 1,
+          "details": {}
+        },
+        "cognitive_distortions": [],
+        "problem_severity": 1,
+        "intervention_needed": false,
+        "recommended_technique": "问题解决"
+      }
+    },
+    {
+      "timestamp": "2026-05-05T18:11:22.071842",
+      "user_message": "我现在含难受",
+      "dimension_gains": {
+        "认知成长": 0,
+        "情绪调节": 15,
+        "行为改变": 0,
+        "社交连接": 0,
+        "自我效能": 0
+      },
+      "total_gain": 16,
+      "multiplier": 1.1,
+      "analysis": {
+        "emotional_state": {
+          "primary": "neutral",
+          "severity": 1,
+          "details": {}
+        },
+        "cognitive_distortions": [],
+        "problem_severity": 1,
+        "intervention_needed": false,
+        "recommended_technique": "问题解决"
+      }
+    },
+    {
+      "timestamp": "2026-05-05T18:12:13.782781",
+      "user_message": "我好担心明天的手术",
+      "dimension_gains": {
+        "认知成长": 0,
+        "情绪调节": 15,
+        "行为改变": 3,
+        "社交连接": 0,
+        "自我效能": 0
+      },
+      "total_gain": 19,
+      "multiplier": 1.1,
+      "analysis": {
+        "emotional_state": {
+          "primary": "anxiety",
+          "severity": 2,
+          "details": {
+            "anxiety": 1
+          }
+        },
+        "cognitive_distortions": [],
+        "problem_severity": 6,
+        "intervention_needed": false,
+        "recommended_technique": "放松训练"
+      }
     }
   ],
   "achievements": [
@@ -1925,21 +1999,21 @@
     19,
     23,
     19,
-    19,
-    23,
-    19,
     16,
     8,
     11,
-    5
+    5,
+    19,
+    16,
+    19
   ],
   "achievement_counters": {
     "mindfulness_count": 0,
     "cognitive_restructure_count": 0,
     "behavioral_activation_count": 0,
     "consecutive_days": 1,
-    "last_session_date": "2026-04-26",
-    "positive_emotion_count": 0,
+    "last_session_date": "2026-05-05",
+    "positive_emotion_count": 3,
     "crisis_overcome_count": 0,
     "high_quality_session_count": 0,
     "dimension_milestones": {
@@ -1950,5 +2024,5 @@
       "自我效能": 0
     }
   },
-  "last_updated": "2026-04-26T14:46:40.450989"
+  "last_updated": "2026-05-05T18:12:13.785380"
 }

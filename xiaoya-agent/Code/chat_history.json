@@ -5,60 +5,28 @@
   },
   {
     "role": "user",
-    "content": "我明天不想醒了"
+    "content": "我好担心明天的手术"
   },
   {
     "role": "assistant",
-    "content": "",
+    "content": "我明白，面对手术感到担心是很正常的，你的身体在提醒自己这是一件需要认真对待的事。不过，这种担忧有时会让大脑只看到最坏的结果。试着把注意力放在医生已经准备周全、你正在为健康迈出勇敢一步上。今晚可以深呼吸几次，或者简单记录下三个让你感到安心的理由。你愿意和我分享一下，具体是什么让你最不安吗？",
     "metadata": {
-      "response_type": "crisis_alert",
+      "response_type": "cbt_response",
       "cbt_analysis": {
         "emotional_state": {
-          "primary": "hopelessness",
-          "severity": "9",
-          "details": {}
+          "primary": "anxiety",
+          "severity": "2",
+          "details": {
+            "anxiety": "1"
+          }
         },
-        "cognitive_distortions": [
-          "catastrophizing",
-          "all_or_nothing"
-        ],
-        "problem_severity": "9",
-        "intervention_needed": "True",
-        "recommended_technique": "认知重构"
+        "cognitive_distortions": [],
+        "problem_severity": "6",
+        "intervention_needed": "False",
+        "recommended_technique": "放松训练"
       },
       "crisis_detection": {
-        "alert": "True"
-      },
-      "user_state": {
-        "transplant_phase": "移植前准备期"
-      }
-    }
-  },
-  {
-    "role": "user",
-    "content": "我想睡一辈子"
-  },
-  {
-    "role": "assistant",
-    "content": "",
-    "metadata": {
-      "response_type": "crisis_alert",
-      "cbt_analysis": {
-        "emotional_state": {
-          "primary": "hopelessness",
-          "severity": "9",
-          "details": {}
-        },
-        "cognitive_distortions": [
-          "catastrophizing",
-          "all_or_nothing"
-        ],
-        "problem_severity": "9",
-        "intervention_needed": "True",
-        "recommended_technique": "认知重构"
-      },
-      "crisis_detection": {
-        "alert": "True"
+        "alert": "False"
       },
       "user_state": {
         "transplant_phase": "移植前准备期"

@@ -1,6 +1,7 @@
 """小芽 Agent API 服务"""
 import json
 import logging
+import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -11,11 +12,33 @@ from flask import Flask, request, jsonify, Response, stream_with_context
 from simple_agent import EnhancedChatAgent
 from config import Config
 from transplant_support import TransplantPhase
+from keyword_library import POSITIVE_EMOTION_LABELS
 
 app = Flask(__name__)
 logger = logging.getLogger(__name__)
 SESSION_TTL_SECONDS = 21600
 USER_FACING_ERROR_MESSAGE = "服务器暂时有点忙，请稍后再试。"
+
+
+def markdown_to_plain_text(value: Any, strip: bool = True) -> str:
+    """将模型可能返回的 Markdown 轻量转换为普通文本。"""
+    if value is None:
+        return ""
+
+    text = str(value).replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"```(?:\w+)?\n?([\s\S]*?)```", r"\1", text)
+    text = re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", text)
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+    text = re.sub(r"`([^`]*)`", r"\1", text)
+    text = re.sub(r"(\*\*|__)(.*?)\1", r"\2", text)
+    text = re.sub(r"(\*|_)(.*?)\1", r"\2", text)
+    text = re.sub(r"^\s{0,3}#{1,6}\s*", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^\s{0,3}>\s?", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^\s*[-*+]\s+", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^\s*\d+[.)]\s+", "", text, flags=re.MULTILINE)
+    text = text.replace("```", "").replace("**", "").replace("__", "").replace("`", "")
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip() if strip else text
 
 
 @dataclass
@@ -111,10 +134,16 @@ def build_crisis_assessment(crisis_detection: Dict, cbt_analysis: Dict) -> Dict[
         emotion_signals.append("绝望感")
     elif emotion == "anger":
         emotion_signals.append("愤怒")
-    elif emotion in ["joy", "calm", "hope"]:
+    elif emotion in POSITIVE_EMOTION_LABELS:
         emotion_signals.append("积极应对")
     if alert:
-        crisis_level, action, crisis_keywords = "critical", "alert_and_notify", ["危机信号"]
+        alert_type = crisis_detection.get("alert_type", "crisis_signal")
+        if alert_type == "medical_red_flag":
+            crisis_level, action, crisis_keywords = "critical", "contact_medical_staff", ["身体红旗"]
+        elif alert_type == "severe_emotional_distress":
+            crisis_level, action, crisis_keywords = "warning", "notify_support", ["严重情绪痛苦"]
+        else:
+            crisis_level, action, crisis_keywords = "critical", "alert_and_notify", ["危机信号"]
     elif severity >= 7:
         crisis_level, action, crisis_keywords = "warning", "mindfulness_guide", []
     elif severity >= 5:
@@ -218,21 +247,35 @@ def psych_chat():
 
         def generate_stream():
             try:
-                yield build_sse_event("start", {"sessionId": session_id, "message": "stream started"})
-                opening = agent.build_fast_opening(message)
-                if opening:
-                    yield build_sse_event("delta", {"content": opening, "stage": "opening"})
+                stream_started_at = time.perf_counter()
+                first_delta_at = None
+                yield build_sse_event("start", {
+                    "sessionId": session_id,
+                    "message": "model-first stream started"
+                })
                 for chunk in agent.stream_chat(message):
-                    yield build_sse_event("delta", {"content": chunk, "stage": "response"})
+                    plain_chunk = markdown_to_plain_text(chunk, strip=False)
+                    if first_delta_at is None and plain_chunk:
+                        first_delta_at = time.perf_counter()
+                    if plain_chunk:
+                        yield build_sse_event("delta", {"content": plain_chunk, "stage": "response"})
                 result = agent.last_result or {}
                 cbt_analysis = result.get("cbt_analysis", {})
                 crisis_detection = result.get("crisis_detection", {})
+                latency_ms = int((time.perf_counter() - stream_started_at) * 1000)
+                first_delta_ms = int((first_delta_at - stream_started_at) * 1000) if first_delta_at else None
                 response = {
-                    "reply": result.get("response", ""),
+                    "reply": markdown_to_plain_text(result.get("response", "")),
                     "energyAssessment": build_energy_assessment(result.get("energy_assessment")),
                     "crisisAssessment": build_crisis_assessment(crisis_detection, cbt_analysis),
                     "recommendedQuestions": generate_recommended_questions(stage, int(patient_context.get("psychEnergy", 50) or 50), cbt_analysis.get("emotional_state", {}), crisis_detection),
-                    "agentMeta": {"model": Config.MODEL_NAME, "tokensUsed": 0, "latencyMs": 0},
+                    "agentMeta": {
+                        "model": Config.MODEL_NAME,
+                        "tokensUsed": 0,
+                        "latencyMs": latency_ms,
+                        "firstDeltaMs": first_delta_ms,
+                        "streamMode": "model_first_background_analysis",
+                    },
                 }
                 if Config.AUTO_SAVE_PROGRESS:
                     threading.Thread(target=agent.save_all_progress, daemon=True).start()
