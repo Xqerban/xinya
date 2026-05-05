@@ -2,10 +2,13 @@
 配置管理模块
 """
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
 # 加载环境变量
-load_dotenv('../config.env')
+CONFIG_ENV_PATH = Path(__file__).resolve().parent.parent / 'config.env'
+load_dotenv(CONFIG_ENV_PATH)
+
 
 class Config:
     """配置类"""

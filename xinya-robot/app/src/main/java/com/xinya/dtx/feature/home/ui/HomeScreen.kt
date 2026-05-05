@@ -52,25 +52,33 @@ fun HomeScreen(
             )
         }
     ) { paddingValues ->
-        Column(
+        // 横屏双栏布局：左侧欢迎卡 + 右侧功能网格
+        Row(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
                 .background(BackgroundCream)
-                .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+                .padding(20.dp),
+            horizontalArrangement = Arrangement.spacedBy(24.dp)
         ) {
-            // 欢迎卡片
-            WelcomeCard(uiState)
+            // 左栏（35%）：欢迎卡片
+            Box(
+                modifier = Modifier
+                    .weight(0.35f)
+                    .fillMaxHeight(),
+                contentAlignment = Alignment.Center
+            ) {
+                WelcomeCard(uiState)
+            }
 
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // 功能入口网格
+            // 右栏（65%）：3 列功能入口网格
             LazyVerticalGrid(
-                columns = GridCells.Fixed(2),
+                columns = GridCells.Fixed(3),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
-                modifier = Modifier.weight(1f)
+                modifier = Modifier
+                    .weight(0.65f)
+                    .fillMaxHeight()
             ) {
                 item {
                     FeatureCard(
@@ -135,15 +143,15 @@ fun HomeScreen(
 fun WelcomeCard(uiState: HomeUiState) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
     ) {
         if (uiState.isLoading) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(20.dp),
+                    .padding(32.dp),
                 contentAlignment = Alignment.Center
             ) {
                 CircularProgressIndicator(color = PrimaryGreen)
@@ -151,42 +159,58 @@ fun WelcomeCard(uiState: HomeUiState) {
         } else {
             val patient = uiState.patient
             val energyFraction = (patient?.psychEnergy ?: 75) / 100f
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(20.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(28.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "您好，${patient?.name ?: "勇敢的战士"}",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "当前阶段：${patient?.stage ?: "--"}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = TextSecondary
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    LinearProgressIndicator(
-                        progress = { energyFraction },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(8.dp)
-                            .clip(RoundedCornerShape(4.dp)),
-                        color = EnergyOrange,
-                        trackColor = EnergyOrangeLight.copy(alpha = 0.3f)
-                    )
-                    Text(
-                        text = "心理能量: ${patient?.psychEnergy ?: "--"}%",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = EnergyOrange,
-                        modifier = Modifier.padding(top = 4.dp)
+                // 头像占位圆圈
+                Box(
+                    modifier = Modifier
+                        .size(72.dp)
+                        .background(PrimaryGreen.copy(alpha = 0.15f), RoundedCornerShape(36.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Person,
+                        contentDescription = null,
+                        modifier = Modifier.size(40.dp),
+                        tint = PrimaryGreen
                     )
                 }
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "您好，${patient?.name ?: "勇敢的战士"}",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "当前阶段：${patient?.stage ?: "--"}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextSecondary,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(20.dp))
+                LinearProgressIndicator(
+                    progress = { energyFraction },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(10.dp)
+                        .clip(RoundedCornerShape(5.dp)),
+                    color = EnergyOrange,
+                    trackColor = EnergyOrangeLight.copy(alpha = 0.3f)
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "心理能量: ${patient?.psychEnergy ?: "--"}%",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = EnergyOrange,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
     }
@@ -203,7 +227,7 @@ fun FeatureCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .aspectRatio(1f)
+            .aspectRatio(1.2f)
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(16.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
@@ -223,10 +247,10 @@ fun FeatureCard(
                 Icon(
                     imageVector = icon,
                     contentDescription = title,
-                    modifier = Modifier.size(48.dp),
+                    modifier = Modifier.size(52.dp),
                     tint = Color.White
                 )
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
                 Text(
                     text = title,
                     style = MaterialTheme.typography.titleMedium,

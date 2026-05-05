@@ -297,11 +297,6 @@ def main():
                 # 正常对话 - 使用更快的流式链路
                 print(Fore.BLUE + "智能体: " + Style.RESET_ALL, end="")
 
-                opening = agent.build_fast_opening(user_input)
-                if opening:
-                    sys.stdout.write(opening)
-                    sys.stdout.flush()
-
                 for chunk in agent.stream_chat(user_input):
                     sys.stdout.write(chunk)
                     sys.stdout.flush()

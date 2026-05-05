@@ -51,224 +51,231 @@ fun ProScreen(
             )
         }
     ) { paddingValues ->
+        // 横屏：整体居中，限制最大宽度
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .background(BackgroundCream)
+                .background(BackgroundCream),
+            contentAlignment = Alignment.Center
         ) {
-            when {
-                uiState.isLoading -> {
-                    CircularProgressIndicator(
-                        modifier = Modifier.align(Alignment.Center),
-                        color = PrimaryGreen
-                    )
-                }
-
-                uiState.alreadyCheckedIn -> {
-                    // 今日已打卡
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            Icons.Default.CheckCircle,
-                            contentDescription = null,
-                            modifier = Modifier.size(80.dp),
-                            tint = TextSecondary
-                        )
-                        Spacer(modifier = Modifier.height(24.dp))
-                        Text(
-                            text = "今日已打卡",
-                            style = MaterialTheme.typography.headlineMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimary
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "您今天已经完成了每日打卡，明天再来吧！",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = TextSecondary
-                        )
-                        Spacer(modifier = Modifier.height(32.dp))
-                        Button(
-                            onClick = onBack,
-                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen)
-                        ) {
-                            Text("返回首页")
-                        }
-                    }
-                }
-
-                uiState.isSubmitted -> {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            Icons.Default.CheckCircle,
-                            contentDescription = null,
-                            modifier = Modifier.size(80.dp),
-                            tint = PrimaryGreen
-                        )
-                        Spacer(modifier = Modifier.height(24.dp))
-                        Text(
-                            text = "打卡成功！",
-                            style = MaterialTheme.typography.headlineMedium,
-                            fontWeight = FontWeight.Bold,
+            Box(
+                modifier = Modifier
+                    .widthIn(max = 800.dp)
+                    .fillMaxHeight()
+            ) {
+                when {
+                    uiState.isLoading -> {
+                        CircularProgressIndicator(
+                            modifier = Modifier.align(Alignment.Center),
                             color = PrimaryGreen
                         )
-                        if (uiState.energyDelta > 0) {
+                    }
+
+                    uiState.alreadyCheckedIn -> {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(32.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                modifier = Modifier.size(96.dp),
+                                tint = TextSecondary
+                            )
+                            Spacer(modifier = Modifier.height(24.dp))
+                            Text(
+                                text = "今日已打卡",
+                                style = MaterialTheme.typography.headlineMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary
+                            )
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = "心理能量 +${uiState.energyDelta}",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = EnergyOrange
+                                text = "您今天已经完成了每日打卡，明天再来吧！",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = TextSecondary
                             )
-                        }
-                        Spacer(modifier = Modifier.height(32.dp))
-                        Button(
-                            onClick = onBack,
-                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen)
-                        ) {
-                            Text("返回首页")
-                        }
-                    }
-                }
-
-                uiState.questions.isEmpty() && uiState.error != null -> {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Text(
-                            text = "加载失败：${uiState.error}",
-                            color = MaterialTheme.colorScheme.error
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Button(
-                            onClick = { },
-                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen)
-                        ) { Text("重试") }
-                    }
-                }
-
-                uiState.questions.isNotEmpty() -> {
-                    val totalSteps = uiState.questions.size
-                    val currentStep = uiState.currentStep
-                    val question = uiState.questions[currentStep]
-
-                    Column(modifier = Modifier.fillMaxSize()) {
-                        LinearProgressIndicator(
-                            progress = { (currentStep + 1).toFloat() / totalSteps },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(4.dp),
-                            color = PrimaryGreen,
-                            trackColor = PrimaryGreen.copy(alpha = 0.2f)
-                        )
-
-                        LazyColumn(
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            item {
-                                Card(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(12.dp),
-                                    colors = CardDefaults.cardColors(containerColor = Color.White)
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(16.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Text(
-                                            text = today,
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                        Text(
-                                            text = "${currentStep + 1}/$totalSteps",
-                                            style = MaterialTheme.typography.titleLarge,
-                                            fontWeight = FontWeight.Bold,
-                                            color = PrimaryGreen
-                                        )
-                                    }
-                                }
-                            }
-
-                            item {
-                                QuestionCard(
-                                    question = question,
-                                    currentAnswer = uiState.answers[question.id],
-                                    onSelectOption = { answer, score ->
-                                        viewModel.selectAnswer(question.id, answer, score)
-                                    }
-                                )
-
-                                if (uiState.error != null) {
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Text(
-                                        text = uiState.error!!,
-                                        color = MaterialTheme.colorScheme.error,
-                                        style = MaterialTheme.typography.bodySmall
-                                    )
-                                }
-                            }
-                        }
-
-                        // 底部按钮
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(Color.White)
-                                .padding(16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            if (currentStep > 0) {
-                                OutlinedButton(
-                                    onClick = { viewModel.prevStep() },
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Text("上一题")
-                                }
-                            }
-
+                            Spacer(modifier = Modifier.height(32.dp))
                             Button(
-                                onClick = {
-                                    if (currentStep < totalSteps - 1) {
-                                        viewModel.nextStep()
-                                    } else {
-                                        viewModel.submit()
-                                    }
-                                },
-                                modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
-                                enabled = uiState.answers.containsKey(question.id)
-                                        && !uiState.isSubmitting
+                                onClick = onBack,
+                                colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen)
                             ) {
-                                if (uiState.isSubmitting) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(16.dp),
-                                        color = Color.White,
-                                        strokeWidth = 2.dp
+                                Text("返回首页")
+                            }
+                        }
+                    }
+
+                    uiState.isSubmitted -> {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(32.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                modifier = Modifier.size(96.dp),
+                                tint = PrimaryGreen
+                            )
+                            Spacer(modifier = Modifier.height(24.dp))
+                            Text(
+                                text = "打卡成功！",
+                                style = MaterialTheme.typography.headlineMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = PrimaryGreen
+                            )
+                            if (uiState.energyDelta > 0) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "心理能量 +${uiState.energyDelta}",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = EnergyOrange
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(32.dp))
+                            Button(
+                                onClick = onBack,
+                                colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen)
+                            ) {
+                                Text("返回首页")
+                            }
+                        }
+                    }
+
+                    uiState.questions.isEmpty() && uiState.error != null -> {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(32.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Text(
+                                text = "加载失败：${uiState.error}",
+                                color = MaterialTheme.colorScheme.error
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Button(
+                                onClick = { },
+                                colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen)
+                            ) { Text("重试") }
+                        }
+                    }
+
+                    uiState.questions.isNotEmpty() -> {
+                        val totalSteps = uiState.questions.size
+                        val currentStep = uiState.currentStep
+                        val question = uiState.questions[currentStep]
+
+                        Column(modifier = Modifier.fillMaxSize()) {
+                            LinearProgressIndicator(
+                                progress = { (currentStep + 1).toFloat() / totalSteps },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(4.dp),
+                                color = PrimaryGreen,
+                                trackColor = PrimaryGreen.copy(alpha = 0.2f)
+                            )
+
+                            LazyColumn(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(20.dp),
+                                verticalArrangement = Arrangement.spacedBy(20.dp)
+                            ) {
+                                item {
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = CardDefaults.cardColors(containerColor = Color.White)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(16.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Text(
+                                                text = today,
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                text = "${currentStep + 1}/$totalSteps",
+                                                style = MaterialTheme.typography.titleLarge,
+                                                fontWeight = FontWeight.Bold,
+                                                color = PrimaryGreen
+                                            )
+                                        }
+                                    }
+                                }
+
+                                item {
+                                    QuestionCard(
+                                        question = question,
+                                        currentAnswer = uiState.answers[question.id],
+                                        onSelectOption = { answer, score ->
+                                            viewModel.selectAnswer(question.id, answer, score)
+                                        }
                                     )
-                                } else {
-                                    Text(if (currentStep < totalSteps - 1) "下一题" else "提交")
+
+                                    if (uiState.error != null) {
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Text(
+                                            text = uiState.error!!,
+                                            color = MaterialTheme.colorScheme.error,
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                    }
+                                }
+                            }
+
+                            // 底部按钮
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color.White)
+                                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                            ) {
+                                if (currentStep > 0) {
+                                    OutlinedButton(
+                                        onClick = { viewModel.prevStep() },
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Text("上一题")
+                                    }
+                                }
+
+                                Button(
+                                    onClick = {
+                                        if (currentStep < totalSteps - 1) {
+                                            viewModel.nextStep()
+                                        } else {
+                                            viewModel.submit()
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
+                                    enabled = uiState.answers.containsKey(question.id)
+                                            && !uiState.isSubmitting
+                                ) {
+                                    if (uiState.isSubmitting) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(16.dp),
+                                            color = Color.White,
+                                            strokeWidth = 2.dp
+                                        )
+                                    } else {
+                                        Text(if (currentStep < totalSteps - 1) "下一题" else "提交")
+                                    }
                                 }
                             }
                         }
@@ -294,7 +301,7 @@ fun QuestionCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(20.dp)
+                .padding(24.dp)
         ) {
             Text(
                 text = question.title,
@@ -307,7 +314,6 @@ fun QuestionCard(
 
             when (question.type) {
                 "scale" -> {
-                    // 滑动条题型
                     val minVal = (question.min ?: 1).toFloat()
                     val maxVal = (question.max ?: 10).toFloat()
                     val currentScore = currentAnswer?.second?.toFloat() ?: minVal
@@ -352,7 +358,6 @@ fun QuestionCard(
                 }
 
                 else -> {
-                    // single_choice 题型（默认）
                     question.options?.forEach { option ->
                         val isSelected = currentAnswer?.first == option.value
 
@@ -397,7 +402,7 @@ fun QuestionCard(
                                     )
                                 }
                             }
-                            Spacer(modifier = Modifier.width(12.dp))
+                            Spacer(modifier = Modifier.width(14.dp))
                             Text(
                                 text = option.label,
                                 style = MaterialTheme.typography.bodyLarge,

@@ -13,3 +13,5 @@
 .externalNativeBuild
 .cxx
 local.properties
+/sdk-1.137.1
+/doc

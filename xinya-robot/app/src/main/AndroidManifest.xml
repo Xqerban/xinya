@@ -25,19 +25,26 @@
         android:theme="@style/Theme.XinyaDTx"
         android:usesCleartextTraffic="true"
         tools:targetApi="31">
+
+        <!-- temi SDK：注册为 temi 技能，显示在 temi 应用列表 -->
+        <meta-data
+            android:name="com.robotemi.sdk.metadata.SKILL"
+            android:value="@string/app_name" />
+
+        <!-- temi SDK：声明为 Kiosk 技能，支持作为主屏幕应用 -->
+        <meta-data
+            android:name="com.robotemi.sdk.metadata.KIOSK"
+            android:value="true" />
         
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
-            android:screenOrientation="portrait"
+            android:screenOrientation="landscape"
             android:theme="@style/Theme.XinyaDTx">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
-                <!-- Kiosk模式：设为默认桌面 -->
-                <category android:name="android.intent.category.HOME" />
-                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
         

@@ -45,7 +45,6 @@ fun AgentScreen(
         viewModel.initialize(agentType)
     }
 
-    // 新消息时自动滚动到底部
     LaunchedEffect(uiState.messages.size) {
         if (uiState.messages.isNotEmpty()) {
             coroutineScope.launch {
@@ -54,7 +53,6 @@ fun AgentScreen(
         }
     }
 
-    // 危机提醒弹窗
     if (uiState.crisisAlert) {
         AlertDialog(
             onDismissRequest = { },
@@ -62,7 +60,7 @@ fun AgentScreen(
             title = { Text("心理预警") },
             text = { Text("系统检测到您可能需要帮助，已通知您的主治医生，请保持冷静。") },
             confirmButton = {
-                TextButton(onClick = { /* 无法关闭，等待医护处理 */ }) {
+                TextButton(onClick = { }) {
                     Text("好的", color = PrimaryGreen)
                 }
             }
@@ -115,145 +113,159 @@ fun AgentScreen(
             )
         }
     ) { paddingValues ->
-        Column(
+        // 横屏：整体聊天区域居中，限制最大宽度
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .background(agentBackground)
+                .background(agentBackground),
+            contentAlignment = Alignment.TopCenter
         ) {
-            LazyColumn(
+            Column(
                 modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                state = listState,
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                contentPadding = PaddingValues(vertical = 16.dp)
+                    .widthIn(max = 900.dp)
+                    .fillMaxHeight()
             ) {
-                items(uiState.messages) { message ->
-                    if (message.isLoading) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.Start
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .background(agentColor),
-                                contentAlignment = Alignment.Center
+                LazyColumn(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp),
+                    state = listState,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    contentPadding = PaddingValues(vertical = 16.dp)
+                ) {
+                    items(uiState.messages) { message ->
+                        if (message.isLoading && message.content.isEmpty()) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Start
                             ) {
-                                Text(agentName.first().toString(), color = Color.White,
-                                    fontWeight = FontWeight.Bold)
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Card(
-                                shape = RoundedCornerShape(4.dp, 16.dp, 16.dp, 16.dp),
-                                colors = CardDefaults.cardColors(containerColor = Color.White)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(agentColor),
+                                    contentAlignment = Alignment.Center
                                 ) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(16.dp),
-                                        color = agentColor,
-                                        strokeWidth = 2.dp
+                                    Text(
+                                        agentName.first().toString(),
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold
                                     )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text("正在思考...", style = MaterialTheme.typography.bodySmall,
-                                        color = TextSecondary)
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Card(
+                                    shape = RoundedCornerShape(4.dp, 16.dp, 16.dp, 16.dp),
+                                    colors = CardDefaults.cardColors(containerColor = Color.White)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(16.dp),
+                                            color = agentColor,
+                                            strokeWidth = 2.dp
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            "正在思考...",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = TextSecondary
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            ChatBubble(message = message, agentColor = agentColor, agentName = agentName)
+                        }
+                    }
+
+                    if (uiState.recommendedQuestions.isNotEmpty()) {
+                        item {
+                            Column(modifier = Modifier.padding(top = 8.dp)) {
+                                Text(
+                                    text = "您可能想问：",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = TextSecondary,
+                                    modifier = Modifier.padding(bottom = 8.dp)
+                                )
+                                uiState.recommendedQuestions.forEach { question ->
+                                    SuggestionChip(
+                                        onClick = { viewModel.sendMessage(agentType, question) },
+                                        label = { Text(question) },
+                                        modifier = Modifier.padding(end = 8.dp, bottom = 4.dp)
+                                    )
                                 }
                             }
                         }
-                    } else {
-                        ChatBubble(message = message, agentColor = agentColor, agentName = agentName)
                     }
-                }
 
-                if (uiState.recommendedQuestions.isNotEmpty()) {
-                    item {
-                        Column(modifier = Modifier.padding(top = 8.dp)) {
-                            Text(
-                                text = "您可能想问：",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = TextSecondary,
-                                modifier = Modifier.padding(bottom = 8.dp)
-                            )
-                            uiState.recommendedQuestions.forEach { question ->
-                                SuggestionChip(
-                                    onClick = {
-                                        viewModel.sendMessage(agentType, question)
-                                    },
-                                    label = { Text(question) },
-                                    modifier = Modifier.padding(end = 8.dp, bottom = 4.dp)
+                    if (uiState.error != null) {
+                        item {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.errorContainer
+                                )
+                            ) {
+                                Text(
+                                    text = "发送失败: ${uiState.error}",
+                                    modifier = Modifier.padding(12.dp),
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                    style = MaterialTheme.typography.bodySmall
                                 )
                             }
                         }
                     }
                 }
 
-                if (uiState.error != null) {
-                    item {
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.errorContainer
-                            )
+                // 输入区域
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = Color.White,
+                    shadowElevation = 8.dp
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = inputText,
+                            onValueChange = { inputText = it },
+                            modifier = Modifier.weight(1f),
+                            placeholder = { Text("输入您想说的话...") },
+                            shape = RoundedCornerShape(24.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = agentColor,
+                                unfocusedBorderColor = Color.LightGray
+                            ),
+                            maxLines = 3
+                        )
+
+                        Spacer(modifier = Modifier.width(12.dp))
+
+                        IconButton(
+                            onClick = {
+                                if (inputText.isNotBlank()) {
+                                    viewModel.sendMessage(agentType, inputText)
+                                    inputText = ""
+                                }
+                            },
+                            enabled = inputText.isNotBlank() && !uiState.isSending,
+                            modifier = Modifier.size(48.dp)
                         ) {
-                            Text(
-                                text = "发送失败: ${uiState.error}",
-                                modifier = Modifier.padding(12.dp),
-                                color = MaterialTheme.colorScheme.onErrorContainer,
-                                style = MaterialTheme.typography.bodySmall
+                            Icon(
+                                Icons.AutoMirrored.Filled.Send,
+                                contentDescription = "发送",
+                                tint = if (inputText.isNotBlank() && !uiState.isSending)
+                                    agentColor else Color.Gray,
+                                modifier = Modifier.size(28.dp)
                             )
                         }
-                    }
-                }
-            }
-
-            // 输入区域
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = Color.White,
-                shadowElevation = 8.dp
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OutlinedTextField(
-                        value = inputText,
-                        onValueChange = { inputText = it },
-                        modifier = Modifier.weight(1f),
-                        placeholder = { Text("输入您想说的话...") },
-                        shape = RoundedCornerShape(24.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = agentColor,
-                            unfocusedBorderColor = Color.LightGray
-                        ),
-                        maxLines = 3
-                    )
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    IconButton(
-                        onClick = {
-                            if (inputText.isNotBlank()) {
-                                viewModel.sendMessage(agentType, inputText)
-                                inputText = ""
-                            }
-                        },
-                        enabled = inputText.isNotBlank() && !uiState.isSending
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.Send,
-                            contentDescription = "发送",
-                            tint = if (inputText.isNotBlank() && !uiState.isSending)
-                                agentColor else Color.Gray
-                        )
                     }
                 }
             }
@@ -281,7 +293,7 @@ fun ChatBubble(message: ChatMessageUi, agentColor: Color, agentName: String) {
         }
 
         Card(
-            modifier = Modifier.widthIn(max = 280.dp),
+            modifier = Modifier.widthIn(max = 420.dp),
             shape = if (message.isFromUser)
                 RoundedCornerShape(16.dp, 4.dp, 16.dp, 16.dp)
             else
@@ -292,7 +304,7 @@ fun ChatBubble(message: ChatMessageUi, agentColor: Color, agentName: String) {
         ) {
             Text(
                 text = message.content,
-                modifier = Modifier.padding(12.dp),
+                modifier = Modifier.padding(14.dp),
                 style = MaterialTheme.typography.bodyMedium,
                 color = if (message.isFromUser) Color.White else TextPrimary
             )

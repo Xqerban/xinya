@@ -1,5 +1,6 @@
 package com.xinya.dtx
 
+import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -12,6 +13,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.robotemi.sdk.Robot
+import com.robotemi.sdk.listeners.OnRobotReadyListener
 import com.xinya.dtx.core.session.SessionManager
 import com.xinya.dtx.feature.setup.ui.SetupScreen
 import com.xinya.dtx.ui.navigation.XinyaNavHost
@@ -22,16 +25,19 @@ import javax.inject.Inject
 
 /**
  * 心芽DTx主Activity
- * 作为Kiosk模式的主入口
+ * 作为 temi Kiosk 模式的主入口，集成 temi SDK OnRobotReadyListener
  */
 @AndroidEntryPoint
-class MainActivity : ComponentActivity() {
+class MainActivity : ComponentActivity(), OnRobotReadyListener {
 
     @Inject
     lateinit var sessionManager: SessionManager
 
+    private lateinit var robot: Robot
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        robot = Robot.getInstance()
         enableEdgeToEdge()
         setContent {
             XinyaTheme {
@@ -43,21 +49,46 @@ class MainActivity : ComponentActivity() {
 
                     when (isBound) {
                         null -> {
-                            // 加载中
                             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 CircularProgressIndicator()
                             }
                         }
                         false -> {
-                            // 未绑定，显示绑定界面
-                            SetupScreen(onBindingSuccess = { /* isBound 变为 true 后自动切换 */ })
+                            SetupScreen(onBindingSuccess = { })
                         }
                         true -> {
-                            // 已绑定，进入主界面
                             XinyaNavHost()
                         }
                     }
                 }
+            }
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        robot.addOnRobotReadyListener(this)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        robot.removeOnRobotReadyListener(this)
+    }
+
+    /**
+     * temi SDK 就绪回调
+     * 调用 robot.onStart() 使应用图标出现在 temi 顶部导航栏，并完成技能注册
+     */
+    override fun onRobotReady(isReady: Boolean) {
+        if (isReady) {
+            try {
+                val activityInfo = packageManager.getActivityInfo(
+                    componentName,
+                    PackageManager.GET_META_DATA
+                )
+                robot.onStart(activityInfo)
+            } catch (e: PackageManager.NameNotFoundException) {
+                e.printStackTrace()
             }
         }
     }

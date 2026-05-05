@@ -99,6 +99,9 @@ dependencies {
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.ui)
     
+    // temi SDK
+    implementation("com.robotemi:sdk:1.137.1")
+
     // Coroutines
     implementation(libs.kotlinx.coroutines.android)
     

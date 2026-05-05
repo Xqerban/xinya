@@ -12,12 +12,15 @@ import com.xinya.dtx.common.response.PageResult;
 import jakarta.persistence.EntityNotFoundException;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import reactor.core.Disposable;
 
 @RestController
 @RequestMapping("/api/agent")
@@ -36,6 +39,34 @@ public class AgentController {
         } catch (IllegalArgumentException e) {
             return ApiResponse.error(400, e.getMessage());
         }
+    }
+
+    @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter chatStream(@Valid @RequestBody AgentChatRequest request) {
+        // 0L = no timeout (keep consistent with long-running LLM streaming)
+        SseEmitter emitter = new SseEmitter(0L);
+
+        Disposable disposable = agentService.chatStream(request).subscribe(
+                ev -> {
+                    try {
+                        emitter.send(SseEmitter.event()
+                                .name(ev.eventName())
+                                .data(ev.dataJson() != null ? ev.dataJson() : ""));
+                    } catch (Exception e) {
+                        emitter.completeWithError(e);
+                    }
+                },
+                emitter::completeWithError,
+                emitter::complete
+        );
+
+        emitter.onCompletion(disposable::dispose);
+        emitter.onTimeout(() -> {
+            disposable.dispose();
+            emitter.complete();
+        });
+
+        return emitter;
     }
 
     @GetMapping("/recommendations")

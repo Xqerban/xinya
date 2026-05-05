@@ -4,11 +4,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.xinya.dtx.core.session.SessionManager
 import com.xinya.dtx.feature.agent.data.AgentRepository
+import com.xinya.dtx.feature.agent.data.ChatStreamEvent
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import java.util.UUID
 import javax.inject.Inject
@@ -73,25 +75,65 @@ class AgentViewModel @Inject constructor(
 
         viewModelScope.launch {
             val patientId = sessionManager.patientId.first()
-            agentRepository.chat(patientId, agentType, message, sessionId).fold(
-                onSuccess = { response ->
-                    val messagesWithoutLoading = _uiState.value.messages.dropLast(1)
-                    _uiState.value = _uiState.value.copy(
-                        messages = messagesWithoutLoading + ChatMessageUi(response.reply, false),
-                        isSending = false,
-                        recommendedQuestions = response.recommendedQuestions,
-                        crisisAlert = response.crisisAlert
-                    )
-                },
-                onFailure = { e ->
-                    val messagesWithoutLoading = _uiState.value.messages.dropLast(1)
-                    _uiState.value = _uiState.value.copy(
-                        messages = messagesWithoutLoading,
-                        isSending = false,
-                        error = e.message ?: "发送失败，请重试"
-                    )
+            if (agentType == "psych") {
+                // SSE 流式：边收边更新最后一条 assistant 占位气泡
+                var acc = ""
+                agentRepository.chatStream(patientId, agentType, message, sessionId).collect { ev ->
+                    when (ev) {
+                        is ChatStreamEvent.Start -> {
+                            // no-op
+                        }
+                        is ChatStreamEvent.Delta -> {
+                            acc += ev.content
+                            val msgs = _uiState.value.messages.toMutableList()
+                            if (msgs.isNotEmpty()) {
+                                val lastIdx = msgs.lastIndex
+                                val last = msgs[lastIdx]
+                                // 只更新最后一条（assistant loading）
+                                msgs[lastIdx] = last.copy(content = acc, isFromUser = false, isLoading = true)
+                                _uiState.value = _uiState.value.copy(messages = msgs)
+                            }
+                        }
+                        is ChatStreamEvent.Done -> {
+                            val messagesWithoutLoading = _uiState.value.messages.dropLast(1)
+                            _uiState.value = _uiState.value.copy(
+                                messages = messagesWithoutLoading + ChatMessageUi(ev.response.reply, false, isLoading = false),
+                                isSending = false,
+                                recommendedQuestions = ev.response.recommendedQuestions,
+                                crisisAlert = ev.response.crisisAlert
+                            )
+                        }
+                        is ChatStreamEvent.Error -> {
+                            val messagesWithoutLoading = _uiState.value.messages.dropLast(1)
+                            _uiState.value = _uiState.value.copy(
+                                messages = messagesWithoutLoading,
+                                isSending = false,
+                                error = ev.message
+                            )
+                        }
+                    }
                 }
-            )
+            } else {
+                agentRepository.chat(patientId, agentType, message, sessionId).fold(
+                    onSuccess = { response ->
+                        val messagesWithoutLoading = _uiState.value.messages.dropLast(1)
+                        _uiState.value = _uiState.value.copy(
+                            messages = messagesWithoutLoading + ChatMessageUi(response.reply, false),
+                            isSending = false,
+                            recommendedQuestions = response.recommendedQuestions,
+                            crisisAlert = response.crisisAlert
+                        )
+                    },
+                    onFailure = { e ->
+                        val messagesWithoutLoading = _uiState.value.messages.dropLast(1)
+                        _uiState.value = _uiState.value.copy(
+                            messages = messagesWithoutLoading,
+                            isSending = false,
+                            error = e.message ?: "发送失败，请重试"
+                        )
+                    }
+                )
+            }
         }
     }
 }

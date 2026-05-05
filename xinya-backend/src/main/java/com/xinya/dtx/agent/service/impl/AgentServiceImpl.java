@@ -5,6 +5,7 @@ import com.google.gson.JsonObject;
 import com.xinya.dtx.agent.dto.AgentChatRequest;
 import com.xinya.dtx.agent.dto.AgentChatResponse;
 import com.xinya.dtx.agent.dto.AgentChatPayload;
+import com.xinya.dtx.agent.dto.AgentStreamEvent;
 import com.xinya.dtx.agent.dto.ConversationItemDto;
 import com.xinya.dtx.agent.dto.NursePushContentDto;
 import com.xinya.dtx.agent.dto.NursePushRequest;
@@ -33,18 +34,23 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.MediaType;
+import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
-import reactor.core.publisher.Mono;
+import reactor.core.publisher.Flux;
 
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 @Service
@@ -149,17 +155,38 @@ public class AgentServiceImpl implements AgentService {
         WebClient client = webClientBuilder.baseUrl(baseUrl).build();
         JsonObject agentResp;
         try {
-            String respJson = client.post()
-                    .uri(path)
-                    .header("Content-Type", "application/json")
-                    .header("X-Api-Key", apiKey)
-                    .bodyValue(payload)
-                    .retrieve()
-                    .bodyToMono(String.class)
-                    .block();
-            agentResp = respJson != null
-                    ? com.google.gson.JsonParser.parseString(respJson).getAsJsonObject()
-                    : null;
+            if ("psych".equals(agentType)) {
+                // psych-agent 永远返回 SSE 流，等待 done 事件取出完整响应体
+                agentResp = client.post()
+                        .uri(path)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .accept(MediaType.TEXT_EVENT_STREAM)
+                        .header("X-Api-Key", apiKey)
+                        .bodyValue(payload)
+                        .retrieve()
+                        .bodyToFlux(new ParameterizedTypeReference<ServerSentEvent<String>>() {})
+                        .filter(sse -> "done".equals(sse.event()))
+                        .next()
+                        .map(sse -> {
+                            String data = sse.data();
+                            if (data == null || data.isBlank()) return (JsonObject) null;
+                            return com.google.gson.JsonParser.parseString(data).getAsJsonObject();
+                        })
+                        .block(Duration.ofSeconds(60));
+            } else {
+                // nurse-agent 返回普通 JSON
+                String respJson = client.post()
+                        .uri(path)
+                        .header("Content-Type", "application/json")
+                        .header("X-Api-Key", apiKey)
+                        .bodyValue(payload)
+                        .retrieve()
+                        .bodyToMono(String.class)
+                        .block(Duration.ofSeconds(30));
+                agentResp = respJson != null
+                        ? com.google.gson.JsonParser.parseString(respJson).getAsJsonObject()
+                        : null;
+            }
         } catch (WebClientResponseException e) {
             // 超时或 5xx 降级
             return buildFallbackResponse(patient, sessionId, agentType, userMsg);
@@ -171,7 +198,141 @@ public class AgentServiceImpl implements AgentService {
             return buildFallbackResponse(patient, sessionId, agentType, userMsg);
         }
 
-        // 4. 解析 Agent 响应
+        return persistAndBuildChatResponse(patient, sessionId, agentType, userMsg, agentResp);
+    }
+
+    @Override
+    @Transactional
+    public Flux<AgentStreamEvent> chatStream(AgentChatRequest request) {
+        Patient patient = patientMapper.findById(request.getPatientId())
+                .orElseThrow(() -> new EntityNotFoundException("患者不存在"));
+
+        String agentType = request.getAgentType();
+        if (!"psych".equals(agentType)) {
+            throw new IllegalArgumentException("stream 接口仅支持 psych");
+        }
+
+        String sessionId = request.getSessionId();
+        if (sessionId == null || sessionId.isBlank()) {
+            sessionId = UUID.randomUUID().toString();
+        }
+        final String finalSessionId = sessionId;
+
+        long clientTs = request.getClientTimestamp() != null
+                ? request.getClientTimestamp()
+                : System.currentTimeMillis();
+
+        // 1. 记录用户消息
+        Conversation userMsg = Conversation.builder()
+                .patientId(patient.getId())
+                .agentType(agentType)
+                .sessionId(sessionId)
+                .message(request.getMessage())
+                .isFromUser(true)
+                .psychEnergyDelta(0)
+                .hopeTreeExpDelta(0)
+                .crisisAlert(false)
+                .crisisLevel(null)
+                .crisisKeywords(null)
+                .emotionSignals(null)
+                .clientTimestamp(clientTs)
+                .build();
+        userMsg = conversationMapper.save(userMsg);
+        final Conversation finalUserMsg = userMsg;
+
+        // 2. 组装调用 Agent 的上下文（与 chat() 保持一致）
+        ClinicalStageInfoDto stageInfo = clinicalService.getCurrentStage(patient.getId());
+
+        AgentChatPayload.PatientContext patientContext = AgentChatPayload.PatientContext.builder()
+                .patientId(patient.getId())
+                .name(patient.getName())
+                .stage(patient.getStage())
+                .stageName(stageInfo != null ? stageInfo.getStageName() : null)
+                .daysInStage(stageInfo != null ? stageInfo.getDaysInStage() : null)
+                .psychEnergy(patient.getPsychEnergy())
+                .treeLevel(patient.getTreeLevel())
+                .age(patient.getAge())
+                .gender(patient.getGender())
+                .diagnosis(patient.getDiagnosis())
+                .build();
+
+        Pageable recentPage = PageRequest.of(0, 10);
+        List<Conversation> recent = conversationMapper.findRecentByPatientIdAndAgentType(
+                patient.getId(), agentType, recentPage);
+        List<AgentChatPayload.HistoryItem> historyList = new ArrayList<>();
+        for (int i = recent.size() - 1; i >= 0; i--) {
+            Conversation c = recent.get(i);
+            AgentChatPayload.HistoryItem h = AgentChatPayload.HistoryItem.builder()
+                    .role(Boolean.TRUE.equals(c.getIsFromUser()) ? "user" : "assistant")
+                    .content(c.getMessage())
+                    .build();
+            historyList.add(h);
+        }
+        AgentChatPayload payload = AgentChatPayload.builder()
+                .sessionId(finalSessionId)
+                .patientContext(patientContext)
+                .history(historyList)
+                .message(request.getMessage())
+                .build();
+
+        WebClient client = webClientBuilder.baseUrl(psychBaseUrl).build();
+
+        AtomicReference<JsonObject> doneObjRef = new AtomicReference<>(null);
+
+        // 使用 ServerSentEvent<String> 类型参数，让 WebClient 的 SSE codec 正确解析
+        // event 名称和 data 字段，避免只拿到裸 data 字符串而丢失 event 类型。
+        Flux<SseEvent> events = client.post()
+                .uri("/v1/psych/chat")
+                .contentType(MediaType.APPLICATION_JSON)
+                .accept(MediaType.TEXT_EVENT_STREAM)
+                .header("X-Api-Key", apiKey)
+                .bodyValue(payload)
+                .retrieve()
+                .bodyToFlux(new ParameterizedTypeReference<ServerSentEvent<String>>() {})
+                .map(sse -> {
+                    String eventName = sse.event() != null ? sse.event() : "message";
+                    String dataText = sse.data() != null ? sse.data() : "{}";
+                    JsonObject dataJson = null;
+                    try {
+                        dataJson = com.google.gson.JsonParser.parseString(dataText).getAsJsonObject();
+                    } catch (Exception ignore) {
+                        // 非 JSON 数据忽略
+                    }
+                    return new SseEvent(eventName, dataText, dataJson);
+                })
+                .filter(e -> e.event != null)
+                .takeUntil(e -> "done".equals(e.event) || "error".equals(e.event))
+                .doOnNext(e -> {
+                    if ("done".equals(e.event) && e.dataJson != null) {
+                        doneObjRef.set(e.dataJson);
+                    }
+                })
+                .doOnComplete(() -> {
+                    JsonObject doneObj = doneObjRef.get();
+                    if (doneObj != null) {
+                        // done 时执行与 chat() 一致的落库/业务更新逻辑
+                        persistAndBuildChatResponse(patient, finalSessionId, agentType, finalUserMsg, doneObj);
+                    }
+                });
+
+        // 透传 SSE（保持 start/delta/done/error 协议不变）
+        return events
+                .map(e -> new AgentStreamEvent(
+                        e.event,
+                        e.dataText != null ? e.dataText : "{}"
+                ))
+                .onErrorResume(err -> Flux.just(new AgentStreamEvent(
+                        "error",
+                        "{\"error\":\"internal_error\",\"message\":\"" + safeJsonString(err.getMessage()) + "\"}"
+                )));
+    }
+
+    private AgentChatResponse persistAndBuildChatResponse(Patient patient,
+                                                         String sessionId,
+                                                         String agentType,
+                                                         Conversation userMsg,
+                                                         JsonObject agentResp) {
+        // 解析 Agent 响应
         String reply = getAsString(agentResp, "reply", "对不起，我现在有点忙，请稍后再试。");
         List<String> questions = getAsStringList(agentResp, "recommendedQuestions");
 
@@ -195,13 +356,9 @@ public class AgentServiceImpl implements AgentService {
                 crisisKeywords = joinStringArray(crisis, "crisisKeywords");
                 emotionSignals = joinStringArray(crisis, "emotionSignals");
             }
-        } else {
-            psychDelta = 0;
-            hopeExpDelta = 0;
-            crisisAlert = false;
         }
 
-        // 5. 更新心理能量 & 希望之树 & 预警
+        // 更新心理能量 & 希望之树 & 预警
         if (psychDelta != 0) {
             updatePsychEnergy(patient, psychDelta, "conversation", "conv-" + userMsg.getId());
         }
@@ -212,7 +369,7 @@ public class AgentServiceImpl implements AgentService {
             createAlert(patient, crisisLevel, crisisKeywords, reply);
         }
 
-        // 6. 记录 AI 回复
+        // 记录 AI 回复
         Conversation aiMsg = Conversation.builder()
                 .patientId(patient.getId())
                 .agentType(agentType)
@@ -237,6 +394,28 @@ public class AgentServiceImpl implements AgentService {
                 .crisisAlert(crisisAlert)
                 .hopeTreeExpDelta(hopeExpDelta)
                 .build();
+    }
+
+    private static final class SseEvent {
+        private final String event;
+        private final String dataText;
+        private final JsonObject dataJson;
+
+        private SseEvent(String event, String dataText, JsonObject dataJson) {
+            this.event = event;
+            this.dataText = dataText;
+            this.dataJson = dataJson;
+        }
+
+        // no text rendering here; controller uses SseEmitter
+    }
+
+    private static String safeJsonString(String s) {
+        if (s == null) return "";
+        return s.replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r");
     }
 
     @Override

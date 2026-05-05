@@ -52,7 +52,6 @@ fun HopeTreeScreen(
         label = "sway"
     )
 
-    // 升级提示弹窗
     if (uiState.levelUpMessage != null) {
         AlertDialog(
             onDismissRequest = { viewModel.dismissLevelUp() },
@@ -103,8 +102,10 @@ fun HopeTreeScreen(
                 ) {
                     Text("加载失败：${uiState.error}", color = MaterialTheme.colorScheme.error)
                     Spacer(modifier = Modifier.height(16.dp))
-                    Button(onClick = { viewModel.loadStatus() },
-                        colors = ButtonDefaults.buttonColors(containerColor = LeafGreen)) {
+                    Button(
+                        onClick = { viewModel.loadStatus() },
+                        colors = ButtonDefaults.buttonColors(containerColor = LeafGreen)
+                    ) {
                         Text("重试")
                     }
                 }
@@ -116,50 +117,53 @@ fun HopeTreeScreen(
                 val nextLevelProgress = if (nextLevelExp > 0) currentExp.toFloat() / nextLevelExp else 0f
                 val safeLevel = currentLevel.coerceIn(1, stages.size)
 
-                Column(
+                // 横屏双栏：左侧信息面板 + 右侧树画布
+                Row(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(
-                            brush = Brush.verticalGradient(
+                            brush = Brush.linearGradient(
                                 colors = listOf(
                                     Color(0xFF87CEEB),
                                     Color(0xFFE8F5E9),
                                     Color(0xFF8BC34A).copy(alpha = 0.3f)
                                 )
                             )
-                        ),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // 当前状态卡片
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = Color.White.copy(alpha = 0.9f)
                         )
+                ) {
+                    // 左栏（40%）：状态卡片 + 阶段指示器
+                    Column(
+                        modifier = Modifier
+                            .weight(0.4f)
+                            .fillMaxHeight()
+                            .padding(20.dp),
+                        verticalArrangement = Arrangement.Center
                     ) {
-                        Column(
-                            modifier = Modifier.padding(16.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
+                        // 当前状态卡片
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = Color.White.copy(alpha = 0.9f)
+                            )
                         ) {
-                            Text(
-                                text = "第 $currentLevel 阶段：${stages[safeLevel - 1].name}",
-                                style = MaterialTheme.typography.headlineMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = LeafGreen
-                            )
-                            Text(
-                                text = stages[safeLevel - 1].description,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = TextSecondary
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            Column(modifier = Modifier.fillMaxWidth()) {
+                            Column(
+                                modifier = Modifier.padding(20.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = "第 $currentLevel 阶段：${stages[safeLevel - 1].name}",
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = LeafGreen,
+                                    textAlign = TextAlign.Center
+                                )
+                                Text(
+                                    text = stages[safeLevel - 1].description,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = TextSecondary
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween
@@ -176,7 +180,7 @@ fun HopeTreeScreen(
                                         fontWeight = FontWeight.Bold
                                     )
                                 }
-                                Spacer(modifier = Modifier.height(4.dp))
+                                Spacer(modifier = Modifier.height(6.dp))
                                 LinearProgressIndicator(
                                     progress = { nextLevelProgress },
                                     modifier = Modifier
@@ -187,13 +191,46 @@ fun HopeTreeScreen(
                                 )
                             }
                         }
+
+                        Spacer(modifier = Modifier.height(24.dp))
+
+                        // 阶段指示器（竖向排列）
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = Color.White.copy(alpha = 0.85f)
+                            )
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text(
+                                    text = "成长历程",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = LeafGreen,
+                                    modifier = Modifier.padding(bottom = 12.dp)
+                                )
+                                stages.forEachIndexed { index, stage ->
+                                    StageIndicatorRow(
+                                        stage = index + 1,
+                                        name = stage.name,
+                                        clinicalPhase = stage.clinicalPhase,
+                                        isCompleted = index + 1 < currentLevel,
+                                        isCurrent = index + 1 == currentLevel
+                                    )
+                                    if (index < stages.size - 1) {
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                    }
+                                }
+                            }
+                        }
                     }
 
-                    // 树的可视化
+                    // 右栏（60%）：树的 Canvas 动画
                     Box(
                         modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth()
+                            .weight(0.6f)
+                            .fillMaxHeight()
                             .padding(16.dp),
                         contentAlignment = Alignment.Center
                     ) {
@@ -201,25 +238,6 @@ fun HopeTreeScreen(
                             drawTree(currentLevel, swayAngle)
                         }
                     }
-
-                    // 生长阶段指示器
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.SpaceEvenly
-                    ) {
-                        stages.forEachIndexed { index, stage ->
-                            StageIndicator(
-                                stage = index + 1,
-                                name = stage.name,
-                                isCompleted = index + 1 < currentLevel,
-                                isCurrent = index + 1 == currentLevel
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
                 }
             }
         }
@@ -233,6 +251,53 @@ data class TreeStage(
     val description: String
 )
 
+@Composable
+fun StageIndicatorRow(
+    stage: Int,
+    name: String,
+    clinicalPhase: String,
+    isCompleted: Boolean,
+    isCurrent: Boolean
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            modifier = Modifier
+                .size(28.dp)
+                .background(
+                    color = when {
+                        isCompleted -> LeafGreen
+                        isCurrent -> EnergyOrange
+                        else -> Color.LightGray
+                    },
+                    shape = RoundedCornerShape(14.dp)
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = stage.toString(),
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.White,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        Column {
+            Text(
+                text = name,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
+                color = if (isCurrent) EnergyOrange else TextPrimary
+            )
+            Text(
+                text = clinicalPhase,
+                style = MaterialTheme.typography.labelSmall,
+                color = TextSecondary
+            )
+        }
+    }
+}
+
+// 保留原有竖向排列的 StageIndicator（供其他地方使用）
 @Composable
 fun StageIndicator(
     stage: Int,

@@ -20,6 +20,7 @@ from keyword_library import (
     TRANSPLANT_PHASE_KEYWORDS,
     TRANSPLANT_COMMON_SCENARIO_KEYWORDS,
     TRANSPLANT_PHASE_SCENARIO_KEYWORDS,
+    TRANSPLANT_SCENARIO_LABELS,
     contains_any,
 )
 
@@ -240,24 +241,6 @@ def _llm_choose_intervention(
             "你只做“是否需要触发、触发哪个情境”的结构化判断，不输出安慰话术本身。"
         )
 
-        # 场景枚举 key -> 中文描述
-        scenario_map = {
-            "FIRST_MEET": "初次见面/建立连接",
-            "CHEMO_PREP": "化疗/预处理/重构消极认知",
-            "HOPE_TREE": "希望之树/可视化进步",
-            "INNER_STRENGTH": "增强内在力量/唤醒过往资源",
-            "BREATHING": "呼吸练习/建立掌控感",
-            "INFUSION_DAY": "细胞回输当日/欢迎仪式",
-            "SEVERE_DISCOMFORT": "剧烈不适/疼痛恶心/不对抗",
-            "MICRO_LIGHT": "每日微光记录",
-            "FUTURE_SCENE": "未来景象/出院后第一件事",
-            "REVIEW_HOPE_TREE": "回顾希望之树/成长日记",
-            "BLOOD_FLUCTUATION": "血象波动/情绪低落/正常化挫折",
-            "GRATITUDE": "感恩传递练习",
-            "SMALL_GOALS": "设定并完成小目标",
-            "DISCHARGE_LIFE": "展望出院生活",
-        }
-
         user_prompt = (
             "请阅读下面这段患者的话，结合其大致情绪强度和当前分期，判断是否需要触发一段预设的心理引导话术。\n"
             "如果患者只是闲聊/问事实问题/表达很轻的情绪，可以认为不需要触发。\n\n"
@@ -271,7 +254,7 @@ def _llm_choose_intervention(
             "}\n\n"
             f"当前系统记录的分期：{current_phase.value}\n"
             f"情绪强度（0-10，越高越痛苦）：{emotional_severity}\n"
-            f"可选情境 key -> 描述：{json.dumps(scenario_map, ensure_ascii=False)}\n\n"
+            f"可选情境 key -> 描述：{json.dumps(TRANSPLANT_SCENARIO_LABELS, ensure_ascii=False)}\n\n"
             f"患者原话：{user_message}\n\n"
             "只输出 JSON，不要添加任何解释或其他文字。"
         )
