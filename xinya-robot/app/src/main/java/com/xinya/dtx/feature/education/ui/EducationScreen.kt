@@ -41,6 +41,7 @@ fun EducationScreen(
     }
 
     Scaffold(
+        modifier = Modifier.padding(top = TemiTopBarHeight),
         topBar = {
             TopAppBar(
                 title = { Text("护理学堂") },

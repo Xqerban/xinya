@@ -35,6 +35,11 @@
         <meta-data
             android:name="com.robotemi.sdk.metadata.KIOSK"
             android:value="true" />
+
+        <!-- temi SDK：覆盖系统默认 NLU，阻止内置 agent 响应语音识别结果 -->
+        <meta-data
+            android:name="@string/metadata_override_nlu"
+            android:value="true" />
         
         <activity
             android:name=".MainActivity"

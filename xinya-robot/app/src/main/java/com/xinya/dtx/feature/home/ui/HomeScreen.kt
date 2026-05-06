@@ -36,6 +36,7 @@ fun HomeScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     Scaffold(
+        modifier = Modifier.padding(top = TemiTopBarHeight),
         topBar = {
             CenterAlignedTopAppBar(
                 title = {

@@ -1,6 +1,10 @@
 package com.xinya.dtx.ui.theme
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+// temi 机器人系统顶部菜单栏高度，所有页面 Scaffold 需向下偏移此值以避免遮挡
+val TemiTopBarHeight = 65.dp
 
 // 心芽主题色 - 治愈系绿色调
 val PrimaryGreen = Color(0xFF4CAF50)

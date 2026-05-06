@@ -10,6 +10,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MicNone
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -68,6 +70,7 @@ fun AgentScreen(
     }
 
     Scaffold(
+        modifier = Modifier.padding(top = TemiTopBarHeight),
         topBar = {
             TopAppBar(
                 title = {
@@ -233,16 +236,44 @@ fun AgentScreen(
                             .padding(horizontal = 16.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        // 麦克风语音输入按钮
+                        IconButton(
+                            onClick = { viewModel.startVoiceInput() },
+                            enabled = !uiState.isSending && !uiState.isListening,
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (uiState.isListening) Icons.Filled.Mic else Icons.Filled.MicNone,
+                                contentDescription = if (uiState.isListening) "正在聆听" else "语音输入",
+                                tint = when {
+                                    uiState.isListening -> agentColor
+                                    uiState.isSending -> Color.Gray
+                                    else -> agentColor
+                                },
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
                         OutlinedTextField(
                             value = inputText,
                             onValueChange = { inputText = it },
                             modifier = Modifier.weight(1f),
-                            placeholder = { Text("输入您想说的话...") },
+                            placeholder = {
+                                Text(
+                                    when {
+                                        uiState.isListening -> "正在聆听..."
+                                        else -> "输入您想说的话..."
+                                    }
+                                )
+                            },
                             shape = RoundedCornerShape(24.dp),
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = agentColor,
                                 unfocusedBorderColor = Color.LightGray
                             ),
+                            enabled = !uiState.isListening,
                             maxLines = 3
                         )
 
@@ -255,13 +286,13 @@ fun AgentScreen(
                                     inputText = ""
                                 }
                             },
-                            enabled = inputText.isNotBlank() && !uiState.isSending,
+                            enabled = inputText.isNotBlank() && !uiState.isSending && !uiState.isListening,
                             modifier = Modifier.size(48.dp)
                         ) {
                             Icon(
                                 Icons.AutoMirrored.Filled.Send,
                                 contentDescription = "发送",
-                                tint = if (inputText.isNotBlank() && !uiState.isSending)
+                                tint = if (inputText.isNotBlank() && !uiState.isSending && !uiState.isListening)
                                     agentColor else Color.Gray,
                                 modifier = Modifier.size(28.dp)
                             )

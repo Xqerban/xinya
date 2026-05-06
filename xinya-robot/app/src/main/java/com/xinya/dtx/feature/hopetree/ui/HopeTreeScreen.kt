@@ -66,6 +66,7 @@ fun HopeTreeScreen(
     }
 
     Scaffold(
+        modifier = Modifier.padding(top = TemiTopBarHeight),
         topBar = {
             TopAppBar(
                 title = { Text("希望之树") },

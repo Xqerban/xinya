@@ -2,6 +2,8 @@ package com.xinya.dtx.feature.agent.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.robotemi.sdk.Robot
+import com.robotemi.sdk.SttLanguage
 import com.xinya.dtx.core.session.SessionManager
 import com.xinya.dtx.feature.agent.data.AgentRepository
 import com.xinya.dtx.feature.agent.data.ChatStreamEvent
@@ -25,6 +27,7 @@ data class AgentUiState(
     val messages: List<ChatMessageUi> = emptyList(),
     val recommendedQuestions: List<String> = emptyList(),
     val isSending: Boolean = false,
+    val isListening: Boolean = false,
     val error: String? = null,
     val crisisAlert: Boolean = false
 )
@@ -33,14 +36,16 @@ data class AgentUiState(
 class AgentViewModel @Inject constructor(
     private val agentRepository: AgentRepository,
     private val sessionManager: SessionManager
-) : ViewModel() {
+) : ViewModel(), Robot.AsrListener {
 
     private val _uiState = MutableStateFlow(AgentUiState())
     val uiState: StateFlow<AgentUiState> = _uiState.asStateFlow()
 
     private val sessionId = UUID.randomUUID().toString()
+    private var currentAgentType = ""
 
     fun initialize(agentType: String) {
+        currentAgentType = agentType
         val greeting = if (agentType == "psych")
             "您好，我是小芽，您的心理陪护伙伴。今天感觉怎么样？"
         else
@@ -49,7 +54,26 @@ class AgentViewModel @Inject constructor(
         _uiState.value = AgentUiState(
             messages = listOf(ChatMessageUi(greeting, false))
         )
+        Robot.getInstance().addAsrListener(this)
         loadRecommendedQuestions(agentType)
+    }
+
+    fun startVoiceInput() {
+        if (_uiState.value.isSending || _uiState.value.isListening) return
+        _uiState.value = _uiState.value.copy(isListening = true)
+        Robot.getInstance().wakeup()
+    }
+
+    override fun onAsrResult(asrResult: String, sttLanguage: SttLanguage) {
+        _uiState.value = _uiState.value.copy(isListening = false)
+        if (asrResult.isNotBlank()) {
+            sendMessage(currentAgentType, asrResult)
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        Robot.getInstance().removeAsrListener(this)
     }
 
     private fun loadRecommendedQuestions(agentType: String) {

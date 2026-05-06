@@ -35,6 +35,7 @@ fun ProScreen(
     val today = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy年MM月dd日"))
 
     Scaffold(
+        modifier = Modifier.padding(top = TemiTopBarHeight),
         topBar = {
             TopAppBar(
                 title = { Text("每日打卡") },

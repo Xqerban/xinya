@@ -130,5 +130,6 @@ object AppModule {
  */
 object BuildConfig {
     const val API_BASE_URL = "http://10.179.65.60:8081/"
+//    const val API_BASE_URL = "http://10.0.2.2:8081/"
     const val DEBUG = true
 }
