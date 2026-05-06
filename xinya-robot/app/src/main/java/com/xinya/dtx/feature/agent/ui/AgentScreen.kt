@@ -9,7 +9,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicNone
 import androidx.compose.material.icons.filled.Warning
@@ -39,7 +38,6 @@ fun AgentScreen(
     val agentColor = if (isPsychAgent) XiaoyaGreen else NurseBlue
     val agentBackground = if (isPsychAgent) XiaoyaBackground else NurseBackground
 
-    var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
 
@@ -224,7 +222,7 @@ fun AgentScreen(
                     }
                 }
 
-                // 输入区域
+                // 语音输入区域
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     color = Color.White,
@@ -233,68 +231,50 @@ fun AgentScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                            .padding(horizontal = 24.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
                     ) {
-                        // 麦克风语音输入按钮
+                        // 状态提示文字
+                        Text(
+                            text = when {
+                                uiState.isListening -> "正在聆听..."
+                                uiState.isSending -> "正在思考..."
+                                else -> "点击麦克风开始说话"
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = when {
+                                uiState.isListening -> agentColor
+                                uiState.isSending -> Color.Gray
+                                else -> Color.Gray
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+
+                        // 大麦克风按钮
                         IconButton(
                             onClick = { viewModel.startVoiceInput() },
                             enabled = !uiState.isSending && !uiState.isListening,
-                            modifier = Modifier.size(48.dp)
+                            modifier = Modifier
+                                .size(56.dp)
+                                .clip(androidx.compose.foundation.shape.CircleShape)
+                                .background(
+                                    when {
+                                        uiState.isListening -> agentColor
+                                        uiState.isSending -> Color.LightGray
+                                        else -> agentColor.copy(alpha = 0.12f)
+                                    }
+                                )
                         ) {
                             Icon(
                                 imageVector = if (uiState.isListening) Icons.Filled.Mic else Icons.Filled.MicNone,
-                                contentDescription = if (uiState.isListening) "正在聆听" else "语音输入",
+                                contentDescription = if (uiState.isListening) "正在聆听" else "点击说话",
                                 tint = when {
-                                    uiState.isListening -> agentColor
-                                    uiState.isSending -> Color.Gray
+                                    uiState.isListening -> Color.White
+                                    uiState.isSending -> Color.White
                                     else -> agentColor
                                 },
-                                modifier = Modifier.size(28.dp)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(8.dp))
-
-                        OutlinedTextField(
-                            value = inputText,
-                            onValueChange = { inputText = it },
-                            modifier = Modifier.weight(1f),
-                            placeholder = {
-                                Text(
-                                    when {
-                                        uiState.isListening -> "正在聆听..."
-                                        else -> "输入您想说的话..."
-                                    }
-                                )
-                            },
-                            shape = RoundedCornerShape(24.dp),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = agentColor,
-                                unfocusedBorderColor = Color.LightGray
-                            ),
-                            enabled = !uiState.isListening,
-                            maxLines = 3
-                        )
-
-                        Spacer(modifier = Modifier.width(12.dp))
-
-                        IconButton(
-                            onClick = {
-                                if (inputText.isNotBlank()) {
-                                    viewModel.sendMessage(agentType, inputText)
-                                    inputText = ""
-                                }
-                            },
-                            enabled = inputText.isNotBlank() && !uiState.isSending && !uiState.isListening,
-                            modifier = Modifier.size(48.dp)
-                        ) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.Send,
-                                contentDescription = "发送",
-                                tint = if (inputText.isNotBlank() && !uiState.isSending && !uiState.isListening)
-                                    agentColor else Color.Gray,
-                                modifier = Modifier.size(28.dp)
+                                modifier = Modifier.size(30.dp)
                             )
                         }
                     }

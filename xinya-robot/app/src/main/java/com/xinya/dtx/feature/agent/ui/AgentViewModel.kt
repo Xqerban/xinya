@@ -8,6 +8,8 @@ import com.xinya.dtx.core.session.SessionManager
 import com.xinya.dtx.feature.agent.data.AgentRepository
 import com.xinya.dtx.feature.agent.data.ChatStreamEvent
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -43,6 +45,11 @@ class AgentViewModel @Inject constructor(
 
     private val sessionId = UUID.randomUUID().toString()
     private var currentAgentType = ""
+    private var listeningTimeoutJob: Job? = null
+
+    companion object {
+        private const val LISTENING_TIMEOUT_MS = 10_000L // 10 秒无结果自动重置
+    }
 
     fun initialize(agentType: String) {
         currentAgentType = agentType
@@ -62,9 +69,19 @@ class AgentViewModel @Inject constructor(
         if (_uiState.value.isSending || _uiState.value.isListening) return
         _uiState.value = _uiState.value.copy(isListening = true)
         Robot.getInstance().wakeup()
+        // 启动超时保护：若 10 秒内 ASR 无回调则自动解除卡住状态
+        listeningTimeoutJob?.cancel()
+        listeningTimeoutJob = viewModelScope.launch {
+            delay(LISTENING_TIMEOUT_MS)
+            if (_uiState.value.isListening) {
+                Robot.getInstance().finishConversation()
+                _uiState.value = _uiState.value.copy(isListening = false)
+            }
+        }
     }
 
     override fun onAsrResult(asrResult: String, sttLanguage: SttLanguage) {
+        listeningTimeoutJob?.cancel() // 收到结果，取消超时计时
         _uiState.value = _uiState.value.copy(isListening = false)
         if (asrResult.isNotBlank()) {
             sendMessage(currentAgentType, asrResult)
@@ -73,6 +90,7 @@ class AgentViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
+        listeningTimeoutJob?.cancel()
         Robot.getInstance().removeAsrListener(this)
     }
 
