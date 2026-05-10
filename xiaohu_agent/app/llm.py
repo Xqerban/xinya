@@ -1,7 +1,7 @@
 import os
 import time
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, AsyncGenerator
 
 from openai import AsyncOpenAI
 
@@ -20,6 +20,7 @@ def _get_system_prompt(agent_type: str) -> str:
         "根据输入的患者信息和请求，返回指定格式的JSON响应。"
         "确保响应是有效的JSON格式，不要添加额外文本。"
         "如果某些内容未提供，使用默认值或忽略可选字段。"
+        "不要使用markdown格式，前端无法解析你的markdown文本内容。"
     )
     
     if agent_type == "nurse_chat":
@@ -260,4 +261,66 @@ def _local_placeholder(agent_type: str, payload: Any, start_time: Optional[float
     return {"error": "service_unavailable", "message": "DeepSeek 无法访问"}
 
 
-__all__ = ["call_deepseek"]
+async def stream_deepseek(agent_type: str, **payload) -> AsyncGenerator[str, None]:
+    """Stream DeepSeek LLM API response text chunks.
+    
+    Yields text chunks as they arrive from the API. Falls back to placeholder
+    if API is unavailable.
+    """
+    start = time.time()
+    
+    if not DEEPSEEK_API_KEY:
+        # Fallback: yield placeholder response
+        placeholder = await _get_placeholder_reply(agent_type, payload)
+        yield placeholder
+        return
+    
+    system_prompt = _get_system_prompt(agent_type)
+    user_content = json.dumps(payload, ensure_ascii=False)
+    
+    try:
+        stream = await client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ],
+            stream=True
+        )
+        async for chunk in stream:
+            if chunk.choices[0].delta.content:
+                yield chunk.choices[0].delta.content
+    except Exception as e:
+        print(f"DeepSeek streaming failed: {e}")
+        placeholder = await _get_placeholder_reply(agent_type, payload)
+        yield placeholder
+
+
+async def _get_placeholder_reply(agent_type: str, payload: Any) -> str:
+    """Get a simple text reply for fallback when API is unavailable."""
+    if agent_type == "nurse_chat":
+        return "[deepseek-fallback] " + payload.get("message", "(no message)")
+    elif agent_type == "nurse_symptom_trigger":
+        return "小明，我注意到你今天症状比较明显。我为你找了一个专门讲这个的小视频。"
+    elif agent_type == "nurse_reminder_plan":
+        return "根据你的血象趋势，我为你制定了个性化提醒计划。"
+    elif agent_type == "nurse_recommendations":
+        return "今天恶心的感觉是什么时候最严重？"
+    else:
+        return "服务暂时不可用，请稍后再试。"
+
+
+def build_sse_event(event: str, data: Dict[str, Any]) -> str:
+    """Build a Server-Sent Event string.
+    
+    Args:
+        event: Event type (e.g., 'start', 'delta', 'done', 'error')
+        data: Event data to be JSON-encoded
+    
+    Returns:
+        SSE formatted string
+    """
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+__all__ = ["call_deepseek", "stream_deepseek", "build_sse_event"]
