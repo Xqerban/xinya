@@ -1,6 +1,7 @@
 """小芽 Agent API 服务"""
 import json
 import logging
+import os
 import re
 import threading
 import time
@@ -13,6 +14,7 @@ from simple_agent import EnhancedChatAgent
 from config import Config
 from transplant_support import TransplantPhase
 from keyword_library import POSITIVE_EMOTION_LABELS
+from response_formatting import markdown_to_plain_text
 
 app = Flask(__name__)
 logger = logging.getLogger(__name__)
@@ -20,35 +22,24 @@ SESSION_TTL_SECONDS = 21600
 USER_FACING_ERROR_MESSAGE = "服务器暂时有点忙，请稍后再试。"
 
 
-def markdown_to_plain_text(value: Any, strip: bool = True) -> str:
-    """将模型可能返回的 Markdown 轻量转换为普通文本。"""
-    if value is None:
-        return ""
-
-    text = str(value).replace("\r\n", "\n").replace("\r", "\n")
-    text = re.sub(r"```(?:\w+)?\n?([\s\S]*?)```", r"\1", text)
-    text = re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", text)
-    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
-    text = re.sub(r"`([^`]*)`", r"\1", text)
-    text = re.sub(r"(\*\*|__)(.*?)\1", r"\2", text)
-    text = re.sub(r"(\*|_)(.*?)\1", r"\2", text)
-    text = re.sub(r"^\s{0,3}#{1,6}\s*", "", text, flags=re.MULTILINE)
-    text = re.sub(r"^\s{0,3}>\s?", "", text, flags=re.MULTILINE)
-    text = re.sub(r"^\s*[-*+]\s+", "", text, flags=re.MULTILINE)
-    text = re.sub(r"^\s*\d+[.)]\s+", "", text, flags=re.MULTILINE)
-    text = text.replace("```", "").replace("**", "").replace("__", "").replace("`", "")
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    return text.strip() if strip else text
-
-
 @dataclass
 class SessionManager:
     agent: EnhancedChatAgent
     last_access: float = field(default_factory=time.time)
+    lock: threading.RLock = field(default_factory=threading.RLock)
 
 
 agent_sessions: Dict[str, SessionManager] = {}
 agent_sessions_lock = threading.Lock()
+
+
+def get_session_data_dir(session_id: str) -> str:
+    safe_session_id = re.sub(r"[^0-9A-Za-z_.-]+", "_", str(session_id)).strip("._")[:80]
+    if not safe_session_id:
+        safe_session_id = "default"
+    data_dir = os.path.abspath(os.path.join(Config.DATA_DIR, "sessions", safe_session_id))
+    os.makedirs(data_dir, exist_ok=True)
+    return data_dir
 
 
 def cleanup_expired_sessions() -> None:
@@ -64,15 +55,19 @@ def cleanup_expired_sessions() -> None:
         logger.info("已清理 %s 个过期会话", len(expired_ids))
 
 
-def get_or_create_agent(session_id: str) -> EnhancedChatAgent:
+def get_or_create_session(session_id: str) -> SessionManager:
     cleanup_expired_sessions()
     with agent_sessions_lock:
         session = agent_sessions.get(session_id)
         if session is None:
-            session = SessionManager(agent=EnhancedChatAgent())
+            session = SessionManager(agent=EnhancedChatAgent(data_dir=get_session_data_dir(session_id)))
             agent_sessions[session_id] = session
         session.last_access = time.time()
-        return session.agent
+        return session
+
+
+def get_or_create_agent(session_id: str) -> EnhancedChatAgent:
+    return get_or_create_session(session_id).agent
 
 
 def map_stage_to_phase(stage: str) -> TransplantPhase:
@@ -237,49 +232,54 @@ def psych_chat():
         message = data.get("message", "")
         if not session_id or not message:
             return jsonify({"error": "invalid_request", "message": "sessionId 和 message 不能为空"}), 400
-        agent = get_or_create_agent(session_id)
+        session = get_or_create_session(session_id)
+        agent = session.agent
         stage = patient_context.get("stage", "PRETREATMENT")
-        phase = map_stage_to_phase(stage)
-        if agent.get_transplant_phase() != phase:
-            agent.set_transplant_phase(phase)
-        if history:
-            rebuild_agent_history(agent, history)
 
         def generate_stream():
             try:
-                stream_started_at = time.perf_counter()
-                first_delta_at = None
-                yield build_sse_event("start", {
-                    "sessionId": session_id,
-                    "message": "model-first stream started"
-                })
-                for chunk in agent.stream_chat(message):
-                    plain_chunk = markdown_to_plain_text(chunk, strip=False)
-                    if first_delta_at is None and plain_chunk:
-                        first_delta_at = time.perf_counter()
-                    if plain_chunk:
-                        yield build_sse_event("delta", {"content": plain_chunk, "stage": "response"})
-                result = agent.last_result or {}
-                cbt_analysis = result.get("cbt_analysis", {})
-                crisis_detection = result.get("crisis_detection", {})
-                latency_ms = int((time.perf_counter() - stream_started_at) * 1000)
-                first_delta_ms = int((first_delta_at - stream_started_at) * 1000) if first_delta_at else None
-                response = {
-                    "reply": markdown_to_plain_text(result.get("response", "")),
-                    "energyAssessment": build_energy_assessment(result.get("energy_assessment")),
-                    "crisisAssessment": build_crisis_assessment(crisis_detection, cbt_analysis),
-                    "recommendedQuestions": generate_recommended_questions(stage, int(patient_context.get("psychEnergy", 50) or 50), cbt_analysis.get("emotional_state", {}), crisis_detection),
-                    "agentMeta": {
-                        "model": Config.MODEL_NAME,
-                        "tokensUsed": 0,
-                        "latencyMs": latency_ms,
-                        "firstDeltaMs": first_delta_ms,
-                        "streamMode": "model_first_background_analysis",
-                    },
-                }
-                if Config.AUTO_SAVE_PROGRESS:
-                    threading.Thread(target=agent.save_all_progress, daemon=True).start()
-                yield build_sse_event("done", response)
+                with session.lock:
+                    stream_started_at = time.perf_counter()
+                    first_delta_at = None
+                    phase = map_stage_to_phase(stage)
+                    if agent.get_transplant_phase() != phase:
+                        agent.set_transplant_phase(phase)
+                    if history:
+                        rebuild_agent_history(agent, history)
+
+                    yield build_sse_event("start", {
+                        "sessionId": session_id,
+                        "message": "model-first stream started"
+                    })
+                    for chunk in agent.stream_chat(message):
+                        plain_chunk = markdown_to_plain_text(chunk, strip=False)
+                        if first_delta_at is None and plain_chunk:
+                            first_delta_at = time.perf_counter()
+                        if plain_chunk:
+                            yield build_sse_event("delta", {"content": plain_chunk, "stage": "response"})
+
+                    agent.wait_for_background_analysis(Config.POST_STREAM_ANALYSIS_WAIT_SECONDS)
+                    result = agent.last_result or {}
+                    cbt_analysis = result.get("cbt_analysis", {})
+                    crisis_detection = result.get("crisis_detection", {})
+                    latency_ms = int((time.perf_counter() - stream_started_at) * 1000)
+                    first_delta_ms = int((first_delta_at - stream_started_at) * 1000) if first_delta_at else None
+                    response = {
+                        "reply": markdown_to_plain_text(result.get("response", "")),
+                        "energyAssessment": build_energy_assessment(result.get("energy_assessment")),
+                        "crisisAssessment": build_crisis_assessment(crisis_detection, cbt_analysis),
+                        "recommendedQuestions": generate_recommended_questions(stage, int(patient_context.get("psychEnergy", 50) or 50), cbt_analysis.get("emotional_state", {}), crisis_detection),
+                        "agentMeta": {
+                            "model": Config.MODEL_NAME,
+                            "tokensUsed": 0,
+                            "latencyMs": latency_ms,
+                            "firstDeltaMs": first_delta_ms,
+                            "streamMode": "model_first_background_analysis",
+                        },
+                    }
+                    if Config.AUTO_SAVE_PROGRESS:
+                        threading.Thread(target=agent.save_all_progress, daemon=True).start()
+                    yield build_sse_event("done", response)
             except Exception:
                 logger.exception("处理流式请求时发生错误")
                 yield build_sse_event("error", {"error": "internal_error", "message": USER_FACING_ERROR_MESSAGE})

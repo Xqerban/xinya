@@ -11,6 +11,7 @@ from typing import Dict, List, Optional, Callable, Any
 import time
 import json
 import logging
+import os
 from datetime import datetime
 from openai import OpenAI
 from config import Config
@@ -32,7 +33,7 @@ class CrisisType(Enum):
 class CrisisInterventionModule:
     """危机干预模块"""
 
-    def __init__(self, alert_callback: Optional[Callable] = None):
+    def __init__(self, alert_callback: Optional[Callable] = None, data_dir: Optional[str] = None):
         """
         初始化危机干预模块
 
@@ -40,6 +41,7 @@ class CrisisInterventionModule:
             alert_callback: 报警回调函数
         """
         self.alert_callback = alert_callback
+        self.data_dir = data_dir or Config.DATA_DIR
         self.crisis_history = []
 
         # 危机关键词库（兜底规则）
@@ -56,33 +58,97 @@ class CrisisInterventionModule:
         """加载危机关键词"""
         return {crisis_type: keywords.copy() for crisis_type, keywords in CRISIS_KEYWORDS.items()}
 
-    def detect_crisis(self, user_message: str, emotional_analysis: Dict) -> Dict[str, bool]:
+    def assess_crisis(self, user_message: str, emotional_analysis: Dict) -> Dict[str, Any]:
         """
-        危机检测只返回一个状态变量：
-        - alert: 是否需要触发报警
+        危机语义评估，不产生副作用。
 
         规则：
-        - 先尝试 LLM 判定（如开启），失败则回退到关键词规则；
-        - 一旦判定为需要报警，立即触发报警回调；
-        - 不返回任何危机细节（等级/类型/话术等）。
+        - 如开启 CRISIS_LLM_DETECTION_ENABLED，优先使用 LLM 做语义判断；
+        - 只有 LLM 不可用、调用失败或输出异常时，才回退到关键词规则；
+        - 返回 alert、source、severity_score 等元数据，供上层决定是否记录和报警。
         """
         if not Config.CRISIS_DETECTION_ENABLED:
-            return {"alert": False}
+            return {"alert": False, "source": "disabled"}
 
         if Config.CRISIS_LLM_DETECTION_ENABLED:
             llm_result = self._llm_detect_crisis(user_message, emotional_analysis)
-            if isinstance(llm_result, dict) and llm_result.get("has_crisis") is True:
+            if isinstance(llm_result, dict):
                 sev = int(llm_result.get("severity_score", 0) or 0)
                 threshold = getattr(Config, "CRISIS_ALERT_THRESHOLD", 10)
-                if sev >= threshold:
-                    self._record_crisis_event(user_message, sev)
-                    self._trigger_alert({"alert": True})
-                    return {"alert": True}
+                alert = bool(llm_result.get("has_crisis") is True and sev >= threshold)
+                return {
+                    "alert": alert,
+                    "alert_type": "psychological_crisis" if alert else None,
+                    "source": "llm_semantic",
+                    "severity_score": sev,
+                    "crisis_types": llm_result.get("crisis_types") or [],
+                    "reason": llm_result.get("reason", ""),
+                }
 
         rule = self._rule_based_detect_crisis(user_message, emotional_analysis)
         if rule.get("alert", False):
-            self._record_crisis_event(user_message)
-            self._trigger_alert({"alert": True})
+            return {
+                **rule,
+                "alert_type": "psychological_crisis",
+                "source": "keyword_fallback",
+            }
+        return {
+            **rule,
+            "source": "keyword_fallback",
+        }
+
+    def assess_crisis_semantic_only(self, user_message: str, emotional_analysis: Dict) -> Dict[str, Any]:
+        """仅使用 LLM 语义判断危机，不回退关键词规则。"""
+        if not Config.CRISIS_DETECTION_ENABLED:
+            return {"alert": False, "source": "disabled"}
+
+        if not Config.CRISIS_LLM_DETECTION_ENABLED:
+            return {
+                "alert": False,
+                "alert_type": None,
+                "source": "llm_semantic_disabled",
+                "severity_score": 0,
+                "crisis_types": [],
+                "reason": "危机语义判断已关闭，未启用关键词规则兜底。",
+            }
+
+        llm_result = self._llm_detect_crisis(user_message, emotional_analysis)
+        if isinstance(llm_result, dict):
+            sev = int(llm_result.get("severity_score", 0) or 0)
+            threshold = getattr(Config, "CRISIS_ALERT_THRESHOLD", 10)
+            alert = bool(llm_result.get("has_crisis") is True and sev >= threshold)
+            return {
+                "alert": alert,
+                "alert_type": "psychological_crisis" if alert else None,
+                "source": "llm_semantic",
+                "severity_score": sev,
+                "crisis_types": llm_result.get("crisis_types") or [],
+                "reason": llm_result.get("reason", ""),
+            }
+
+        return {
+            "alert": False,
+            "alert_type": None,
+            "source": "llm_semantic_unavailable",
+            "severity_score": 0,
+            "crisis_types": [],
+            "reason": "危机语义判断暂不可用，未启用关键词规则兜底。",
+        }
+
+    def detect_crisis(self, user_message: str, emotional_analysis: Dict) -> Dict[str, bool]:
+        """
+        危机检测兼容旧接口，只返回 alert。
+
+        新逻辑已经改为语义判断优先；关键词只在模型不可用或关闭时兜底。
+        """
+        result = self.assess_crisis(user_message, emotional_analysis)
+        if result.get("alert", False):
+            self._record_crisis_event(user_message, result.get("severity_score"))
+            self._trigger_alert({
+                "alert": True,
+                "alert_type": result.get("alert_type", "psychological_crisis"),
+                "source": result.get("source"),
+            })
             return {"alert": True}
 
         return {"alert": False}
@@ -254,6 +320,7 @@ class CrisisInterventionModule:
             logger.exception("加载危机历史失败")
 
     def _get_filepath(self, filename: str) -> str:
-        import os
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        return os.path.join(script_dir, filename)
+        if os.path.isabs(filename):
+            return filename
+        os.makedirs(self.data_dir, exist_ok=True)
+        return os.path.join(self.data_dir, filename)

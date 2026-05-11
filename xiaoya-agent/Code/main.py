@@ -4,12 +4,20 @@
 """
 import sys
 import os
+import threading
 from colorama import init, Fore, Style
 from simple_agent import EnhancedChatAgent
 from config import Config
+from response_formatting import markdown_to_plain_text
 
 # 初始化colorama
 init(autoreset=True)
+
+def save_progress_async(agent):
+    """Mirror API chat persistence without blocking the streaming response."""
+    if Config.AUTO_SAVE_PROGRESS:
+        threading.Thread(target=agent.save_all_progress, daemon=True).start()
+
 
 def print_welcome():
     """打印欢迎信息"""
@@ -84,6 +92,39 @@ def display_crisis_alert(crisis_detection: dict):
     """显示危机警报"""
     if crisis_detection.get("alert", False):
         print(Fore.RED + "\n 已触发危机报警\n" + Style.RESET_ALL)
+
+
+def run_chat_turn(agent, user_input):
+    """Run one CLI chat turn with the same core stream and post-processing as the API."""
+    print(Fore.BLUE + "智能体: " + Style.RESET_ALL, end="")
+
+    for chunk in agent.stream_chat(user_input):
+        plain_chunk = markdown_to_plain_text(chunk, strip=False)
+        if plain_chunk:
+            sys.stdout.write(plain_chunk)
+            sys.stdout.flush()
+
+    print()
+    if hasattr(agent, "wait_for_background_analysis"):
+        agent.wait_for_background_analysis(Config.POST_STREAM_ANALYSIS_WAIT_SECONDS)
+
+    result = agent.last_result or {
+        "response": "",
+        "response_type": "cbt_response",
+        "crisis_detection": {},
+        "energy_assessment": None,
+        "energy_report": None,
+    }
+
+    crisis_detection = result.get("crisis_detection", {})
+    display_crisis_alert(crisis_detection)
+
+    if Config.ENERGY_FEEDBACK_ENABLED and not crisis_detection.get("alert", False):
+        display_energy_feedback(result.get("energy_assessment"), result.get("energy_report"))
+
+    save_progress_async(agent)
+    print()
+
 
 def main():
     """主函数"""
@@ -294,32 +335,7 @@ def main():
                 continue  # 跳过空输入
 
             else:
-                # 正常对话 - 使用更快的流式链路
-                print(Fore.BLUE + "智能体: " + Style.RESET_ALL, end="")
-
-                for chunk in agent.stream_chat(user_input):
-                    sys.stdout.write(chunk)
-                    sys.stdout.flush()
-
-                print()
-
-                result = agent.last_result or {
-                    "response": "",
-                    "response_type": "cbt_response",
-                    "crisis_detection": {},
-                    "energy_assessment": None,
-                    "energy_report": None,
-                }
-
-                # 显示危机警报（如果有）
-                display_crisis_alert(result.get("crisis_detection", {}))
-
-                # 显示能量反馈（如果启用且不是危机干预）
-                if (Config.ENERGY_FEEDBACK_ENABLED and
-                    result.get("response_type") != "crisis_intervention"):
-                    display_energy_feedback(result.get("energy_assessment"), result.get("energy_report"))
-
-                print()  # 添加空行
+                run_chat_turn(agent, user_input)
 
     except KeyboardInterrupt:
         print(Fore.CYAN + "\n\n程序被用户中断。")

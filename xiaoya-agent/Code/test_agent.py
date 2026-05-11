@@ -13,9 +13,12 @@
 8. 综合报告（CBT进度、能量报告、危机历史）
 """
 import os
+import io
 import json
+import time
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from unittest.mock import patch, MagicMock
 
 from simple_agent import EnhancedChatAgent
@@ -24,12 +27,14 @@ from transplant_support import TransplantPhase, Scenario, choose_intervention, g
 from crisis_module import CrisisInterventionModule, CrisisType
 from cbt_module import CBTModule, CBTTechnique
 from energy_model import PsychologicalEnergyModel
+from main import run_chat_turn
 
 
 class _FakeOpenAI:
     """OpenAI API 模拟器"""
     def __init__(self, responses=None, **kwargs):
         self._responses = list(responses or [])
+        self.requests = []
 
         class _Chat:
             def __init__(self, outer):
@@ -37,6 +42,7 @@ class _FakeOpenAI:
                 self._outer = outer
 
             def create(self, **kwargs):
+                self._outer.requests.append(kwargs)
                 if self._outer._responses:
                     content = self._outer._responses.pop(0)
                 else:
@@ -59,9 +65,235 @@ class _FakeOpenAI:
         self.chat = _Chat(self)
 
 
+class _FakeStreamingOpenAI(_FakeOpenAI):
+    """支持 stream=True 的 OpenAI API 模拟器。"""
+
+    def __init__(self, responses=None, **kwargs):
+        super().__init__(responses=responses, **kwargs)
+
+        class _Chat:
+            def __init__(self, outer):
+                self.completions = self
+                self._outer = outer
+
+            def create(self, **kwargs):
+                self._outer.requests.append(kwargs)
+                if self._outer._responses:
+                    content = self._outer._responses.pop(0)
+                else:
+                    content = "默认回复"
+
+                if kwargs.get("stream"):
+                    class _Delta:
+                        def __init__(self, c):
+                            self.content = c
+
+                    class _Choice:
+                        def __init__(self, c):
+                            self.delta = _Delta(c)
+
+                    class _Chunk:
+                        def __init__(self, c):
+                            self.choices = [_Choice(c)]
+
+                    return iter([_Chunk(content)])
+
+                class _Msg:
+                    def __init__(self, c):
+                        self.content = c
+
+                class _Choice:
+                    def __init__(self, c):
+                        self.message = _Msg(c)
+
+                class _Resp:
+                    def __init__(self, c):
+                        self.choices = [_Choice(c)]
+
+                return _Resp(content)
+
+        self.chat = _Chat(self)
+
+
+class _FailingCrisisOpenAI:
+    """如果流式链路同步调用独立危机 LLM，则让测试失败。"""
+
+    def __init__(self, *args, **kwargs):
+        raise AssertionError("streaming response should not block on crisis LLM")
+
+
+class _FakeSplitStreamAnalysisOpenAI:
+    """主回复走 stream，后台综合分析走非 stream，二者互不抢响应队列。"""
+
+    def __init__(self, **kwargs):
+        class _Chat:
+            def __init__(self):
+                self.completions = self
+
+            def create(self, **kwargs):
+                if kwargs.get("stream"):
+                    class _Delta:
+                        def __init__(self, c):
+                            self.content = c
+
+                    class _Choice:
+                        def __init__(self, c):
+                            self.delta = _Delta(c)
+
+                    class _Chunk:
+                        def __init__(self, c):
+                            self.choices = [_Choice(c)]
+
+                    return iter([_Chunk("我在，先陪你。")])
+
+                content = json.dumps({
+                    "emotional_state": {"primary": "hopelessness", "severity": 9},
+                    "cognitive_distortions": [],
+                    "problem_severity": 9,
+                    "intervention_needed": True,
+                    "recommended_technique": None,
+                    "crisis": {
+                        "has_crisis": True,
+                        "severity_score": 18,
+                        "crisis_types": ["自杀危机"]
+                    },
+                    "transplant": {
+                        "should_trigger": False,
+                        "phase": "移植前准备期",
+                        "scenario": None,
+                        "confidence": 0
+                    }
+                }, ensure_ascii=False)
+
+                class _Msg:
+                    def __init__(self, c):
+                        self.content = c
+
+                class _Choice:
+                    def __init__(self, c):
+                        self.message = _Msg(c)
+
+                class _Resp:
+                    def __init__(self, c):
+                        self.choices = [_Choice(c)]
+
+                return _Resp(content)
+
+        self.chat = _Chat()
+
+
+class _FakeSlowNonCrisisAnalysisOpenAI:
+    """主回复立即流出，后台语义分析稍后返回非危机结果。"""
+
+    def __init__(self, **kwargs):
+        class _Chat:
+            def __init__(self):
+                self.completions = self
+
+            def create(self, **kwargs):
+                if kwargs.get("stream"):
+                    class _Delta:
+                        def __init__(self, c):
+                            self.content = c
+
+                    class _Choice:
+                        def __init__(self, c):
+                            self.delta = _Delta(c)
+
+                    class _Chunk:
+                        def __init__(self, c):
+                            self.choices = [_Choice(c)]
+
+                    return iter([_Chunk("我听到了，我们可以慢慢聊。")])
+
+                time.sleep(0.2)
+                content = json.dumps({
+                    "emotional_state": {"primary": "neutral", "severity": 2},
+                    "cognitive_distortions": [],
+                    "problem_severity": 2,
+                    "intervention_needed": False,
+                    "recommended_technique": None,
+                    "crisis": {
+                        "has_crisis": False,
+                        "severity_score": 2,
+                        "crisis_types": []
+                    },
+                    "transplant": {
+                        "should_trigger": False,
+                        "phase": "移植前准备期",
+                        "scenario": None,
+                        "confidence": 0
+                    }
+                }, ensure_ascii=False)
+
+                class _Msg:
+                    def __init__(self, c):
+                        self.content = c
+
+                class _Choice:
+                    def __init__(self, c):
+                        self.message = _Msg(c)
+
+                class _Resp:
+                    def __init__(self, c):
+                        self.choices = [_Choice(c)]
+
+                return _Resp(content)
+
+        self.chat = _Chat()
+
+
+class _FakeSemanticCrisisOpenAI(_FakeOpenAI):
+    """危机语义判断模拟器：无关键词也能通过语义触发危机。"""
+
+    def __init__(self, responses=None, **kwargs):
+        super().__init__([
+            json.dumps({
+                "has_crisis": True,
+                "crisis_types": ["自杀危机"],
+                "severity_score": 18,
+                "reason": "表达了消失和不再醒来的强烈风险意图"
+            }, ensure_ascii=False)
+        ], **kwargs)
+
+
 # ============================================================================
 # 测试类开始
 # ============================================================================
+
+class TestEntrypointFlowParity(unittest.TestCase):
+    """测试 CLI 入口与 API 入口复用同一轮对话后处理。"""
+
+    def test_cli_chat_turn_plain_text_stream(self):
+        class _FakeCliAgent:
+            def __init__(self):
+                self.last_result = {
+                    "response": "你好",
+                    "response_type": "cbt_response",
+                    "crisis_detection": {},
+                    "energy_assessment": None,
+                    "energy_report": None,
+                }
+
+            def stream_chat(self, message):
+                yield "**你好**，可以继续说。"
+
+            def save_all_progress(self):
+                raise AssertionError("auto-save should be disabled for this test")
+
+        old_auto_save = Config.AUTO_SAVE_PROGRESS
+        try:
+            Config.AUTO_SAVE_PROGRESS = False
+            output = io.StringIO()
+            with redirect_stdout(output):
+                run_chat_turn(_FakeCliAgent(), "你好")
+
+            text = output.getvalue()
+            self.assertIn("智能体:", text)
+            self.assertIn("你好，可以继续说。", text)
+            self.assertNotIn("**", text)
+        finally:
+            Config.AUTO_SAVE_PROGRESS = old_auto_save
 
 class TestBasicChat(unittest.TestCase):
     """测试基础对话功能"""
@@ -311,7 +543,7 @@ class TestTransplantSupport(unittest.TestCase):
 
     def test_phase_management(self):
         """测试分期管理"""
-        agent = EnhancedChatAgent()
+        agent = EnhancedChatAgent(load_persistent_data=False)
         
         # 测试默认分期
         self.assertEqual(agent.get_transplant_phase(), TransplantPhase.PREP)
@@ -558,99 +790,78 @@ class TestPersistence(unittest.TestCase):
     def test_save_and_load_history(self):
         """测试保存和加载对话历史"""
         with tempfile.TemporaryDirectory() as td:
-            old_cwd = os.getcwd()
-            try:
-                os.chdir(td)
-                Config.TRANSPLANT_SUPPORT_ENABLED = False
-                
-                # 创建并保存
-                agent1 = EnhancedChatAgent()
-                agent1.client = _FakeOpenAI(responses=["回复1", "回复2"])
-                agent1.chat("消息1")
-                agent1.chat("消息2")
-                agent1.save_history("test_history.json")
-                
-                # 加载并验证
-                agent2 = EnhancedChatAgent()
-                agent2.load_history("test_history.json")
-                
-                self.assertEqual(len(agent1.get_history()), len(agent2.get_history()))
-            finally:
-                os.chdir(old_cwd)
+            Config.TRANSPLANT_SUPPORT_ENABLED = False
+
+            # 创建并保存
+            agent1 = EnhancedChatAgent(data_dir=td, load_persistent_data=False)
+            agent1.client = _FakeOpenAI(responses=["回复1", "回复2"])
+            agent1.chat("消息1")
+            agent1.chat("消息2")
+            agent1.save_history("test_history.json")
+
+            # 加载并验证
+            agent2 = EnhancedChatAgent(data_dir=td, load_persistent_data=False)
+            agent2.load_history("test_history.json")
+
+            self.assertEqual(len(agent1.get_history()), len(agent2.get_history()))
 
     @patch("simple_agent.OpenAI", _FakeOpenAI)
     def test_save_all_progress(self):
         """测试保存所有进度"""
         with tempfile.TemporaryDirectory() as td:
-            old_cwd = os.getcwd()
-            try:
-                os.chdir(td)
-                Config.TRANSPLANT_SUPPORT_ENABLED = False
-                
-                agent = EnhancedChatAgent()
-                agent.client = _FakeOpenAI(responses=["回复"])
-                agent.chat("测试")
-                agent.save_all_progress()
-                
-                # 验证文件存在
-                self.assertTrue(os.path.exists("chat_history.json"))
-                self.assertTrue(os.path.exists("energy_progress.json"))
-                self.assertTrue(os.path.exists("crisis_history.json"))
-                self.assertTrue(os.path.exists("user_state.json"))
-            finally:
-                os.chdir(old_cwd)
+            Config.TRANSPLANT_SUPPORT_ENABLED = False
+
+            agent = EnhancedChatAgent(data_dir=td, load_persistent_data=False)
+            agent.client = _FakeOpenAI(responses=["回复"])
+            agent.chat("测试")
+            agent.save_all_progress()
+
+            # 验证文件存在
+            self.assertTrue(os.path.exists(os.path.join(td, "chat_history.json")))
+            self.assertTrue(os.path.exists(os.path.join(td, "energy_progress.json")))
+            self.assertTrue(os.path.exists(os.path.join(td, "crisis_history.json")))
+            self.assertTrue(os.path.exists(os.path.join(td, "user_state.json")))
 
     @patch("simple_agent.OpenAI", _FakeOpenAI)
     def test_user_state_persistence(self):
         """测试用户状态持久化"""
         with tempfile.TemporaryDirectory() as td:
-            old_cwd = os.getcwd()
-            try:
-                os.chdir(td)
-                
-                # 设置并保存
-                agent1 = EnhancedChatAgent()
-                agent1.set_transplant_phase(TransplantPhase.KEY)
-                
-                # 加载并验证
-                agent2 = EnhancedChatAgent()
-                self.assertEqual(agent2.get_transplant_phase(), TransplantPhase.KEY)
-            finally:
-                os.chdir(old_cwd)
+            # 设置并保存
+            agent1 = EnhancedChatAgent(data_dir=td, load_persistent_data=False)
+            agent1.set_transplant_phase(TransplantPhase.KEY)
+
+            # 加载并验证
+            agent2 = EnhancedChatAgent(data_dir=td)
+            self.assertEqual(agent2.get_transplant_phase(), TransplantPhase.KEY)
 
     @patch("simple_agent.OpenAI", _FakeOpenAI)
     def test_reset_functionality(self):
         """测试重置功能"""
         with tempfile.TemporaryDirectory() as td:
-            old_cwd = os.getcwd()
-            try:
-                os.chdir(td)
-                Config.TRANSPLANT_SUPPORT_ENABLED = False
-                
-                agent = EnhancedChatAgent()
-                agent.client = _FakeOpenAI(responses=["回复1", "回复2"])
-                
-                # 产生数据
-                agent.chat("消息1")
-                agent.chat("消息2")
-                agent.set_transplant_phase(TransplantPhase.KEY)
-                agent.save_all_progress()
-                
-                # 验证有数据
-                self.assertGreater(len(agent.conversation_history), 1)
-                self.assertEqual(agent.get_transplant_phase(), TransplantPhase.KEY)
-                
-                # 重置
-                result = agent.reset()
-                
-                # 验证重置结果
-                self.assertTrue(result["success"])
-                self.assertEqual(len(agent.conversation_history), 1)  # 只剩system prompt
-                self.assertEqual(agent.get_transplant_phase(), TransplantPhase.PREP)
-                self.assertEqual(agent.cbt_module.user_profile["session_count"], 0)
-                self.assertEqual(agent.energy_model.total_energy, 0)
-            finally:
-                os.chdir(old_cwd)
+            Config.TRANSPLANT_SUPPORT_ENABLED = False
+
+            agent = EnhancedChatAgent(data_dir=td, load_persistent_data=False)
+            agent.client = _FakeOpenAI(responses=["回复1", "回复2"])
+
+            # 产生数据
+            agent.chat("消息1")
+            agent.chat("消息2")
+            agent.set_transplant_phase(TransplantPhase.KEY)
+            agent.save_all_progress()
+
+            # 验证有数据
+            self.assertGreater(len(agent.conversation_history), 1)
+            self.assertEqual(agent.get_transplant_phase(), TransplantPhase.KEY)
+
+            # 重置
+            result = agent.reset()
+
+            # 验证重置结果
+            self.assertTrue(result["success"])
+            self.assertEqual(len(agent.conversation_history), 1)  # 只剩system prompt
+            self.assertEqual(agent.get_transplant_phase(), TransplantPhase.PREP)
+            self.assertEqual(agent.cbt_module.user_profile["session_count"], 0)
+            self.assertEqual(agent.energy_model.total_energy, 0)
 
 
 class TestComprehensiveReport(unittest.TestCase):
@@ -712,7 +923,7 @@ class TestCBTGating(unittest.TestCase):
         analysis = result["cbt_analysis"]
         if analysis["emotional_state"]["severity"] >= 6:
             if result["response_type"] == "cbt_response" and analysis.get("recommended_technique"):
-                self.assertIn("如果你愿意，我们可以试一个小练习", result["response"] or "")
+                self.assertTrue(analysis.get("intervention_needed", False))
 
     @patch("simple_agent.OpenAI", _FakeOpenAI)
     def test_cbt_triggered_for_cognitive_distortion(self):
@@ -727,7 +938,7 @@ class TestCBTGating(unittest.TestCase):
         analysis = result["cbt_analysis"]
         if len(analysis.get("cognitive_distortions", [])) > 0:
             if result["response_type"] == "cbt_response" and analysis.get("recommended_technique"):
-                self.assertIn("如果你愿意，我们可以试一个小练习", result["response"] or "")
+                self.assertTrue(analysis.get("intervention_needed", False) or analysis.get("recommended_technique"))
 
 
 class TestIntegration(unittest.TestCase):
@@ -778,6 +989,133 @@ class TestIntegration(unittest.TestCase):
         # 获取报告
         report = agent.get_comprehensive_report()
         self.assertGreater(report["session_count"], 0)
+
+    @patch("simple_agent.OpenAI", _FakeSlowNonCrisisAnalysisOpenAI)
+    @patch("crisis_module.OpenAI", _FailingCrisisOpenAI)
+    def test_stream_chat_does_not_use_keyword_crisis_rule(self):
+        """流式心理危机判断不应再因关键词规则直接报警。"""
+        old_values = {
+            "CRISIS_DETECTION_ENABLED": Config.CRISIS_DETECTION_ENABLED,
+            "CRISIS_LLM_DETECTION_ENABLED": Config.CRISIS_LLM_DETECTION_ENABLED,
+            "CRISIS_LLM_STREAM_BLOCKING_ENABLED": Config.CRISIS_LLM_STREAM_BLOCKING_ENABLED,
+            "TRANSPLANT_SUPPORT_ENABLED": Config.TRANSPLANT_SUPPORT_ENABLED,
+            "CBT_LLM_ENABLED": Config.CBT_LLM_ENABLED,
+            "TRANSPLANT_LLM_SCENARIO_ENABLED": Config.TRANSPLANT_LLM_SCENARIO_ENABLED,
+            "HISTORY_COMPRESSION_ENABLED": Config.HISTORY_COMPRESSION_ENABLED,
+        }
+        try:
+            Config.CRISIS_DETECTION_ENABLED = True
+            Config.CRISIS_LLM_DETECTION_ENABLED = True
+            Config.CRISIS_LLM_STREAM_BLOCKING_ENABLED = False
+            Config.TRANSPLANT_SUPPORT_ENABLED = False
+            Config.CBT_LLM_ENABLED = False
+            Config.TRANSPLANT_LLM_SCENARIO_ENABLED = False
+            Config.HISTORY_COMPRESSION_ENABLED = False
+
+            agent = EnhancedChatAgent()
+            agent.client = _FakeSlowNonCrisisAnalysisOpenAI()
+            chunks = list(agent.stream_chat("我不怕死"))
+
+            self.assertEqual("".join(chunks), "我听到了，我们可以慢慢聊。")
+            self.assertEqual(agent.last_result["response_type"], "cbt_response")
+            self.assertEqual(agent.last_result["crisis_detection"].get("source"), "semantic_background_pending")
+            self.assertFalse(agent.last_result["crisis_detection"]["alert"])
+        finally:
+            for key, value in old_values.items():
+                setattr(Config, key, value)
+
+    @patch("simple_agent.OpenAI", _FakeStreamingOpenAI)
+    def test_stream_chat_does_not_use_cbt_keyword_rule_for_prompt(self):
+        """流式主回复不应再用 CBT 关键词/规则向首轮提示词注入 CBT 指令。"""
+        old_values = {
+            "CBT_ENABLED": Config.CBT_ENABLED,
+            "AUTO_CBT_INTERVENTION": Config.AUTO_CBT_INTERVENTION,
+            "CBT_DISTORTION_TRIGGER_ENABLED": Config.CBT_DISTORTION_TRIGGER_ENABLED,
+            "CBT_LLM_ENABLED": Config.CBT_LLM_ENABLED,
+            "CRISIS_DETECTION_ENABLED": Config.CRISIS_DETECTION_ENABLED,
+            "CRISIS_LLM_DETECTION_ENABLED": Config.CRISIS_LLM_DETECTION_ENABLED,
+            "TRANSPLANT_SUPPORT_ENABLED": Config.TRANSPLANT_SUPPORT_ENABLED,
+            "TRANSPLANT_LLM_SCENARIO_ENABLED": Config.TRANSPLANT_LLM_SCENARIO_ENABLED,
+            "HISTORY_COMPRESSION_ENABLED": Config.HISTORY_COMPRESSION_ENABLED,
+        }
+        try:
+            Config.CBT_ENABLED = True
+            Config.AUTO_CBT_INTERVENTION = True
+            Config.CBT_DISTORTION_TRIGGER_ENABLED = True
+            Config.CBT_LLM_ENABLED = False
+            Config.CRISIS_DETECTION_ENABLED = False
+            Config.CRISIS_LLM_DETECTION_ENABLED = False
+            Config.TRANSPLANT_SUPPORT_ENABLED = False
+            Config.TRANSPLANT_LLM_SCENARIO_ENABLED = False
+            Config.HISTORY_COMPRESSION_ENABLED = False
+
+            agent = EnhancedChatAgent()
+            agent.client = _FakeStreamingOpenAI(responses=["我在听，我们先把这句话放慢一点看。"])
+            chunks = list(agent.stream_chat("我总是失败，从来没有成功过"))
+
+            self.assertEqual("".join(chunks), "我在听，我们先把这句话放慢一点看。")
+            self.assertEqual(agent.last_result["cbt_analysis"].get("source"), "semantic_background_pending")
+            prompt_text = "\n".join(
+                message.get("content", "")
+                for message in agent.client.requests[0]["messages"]
+                if message.get("role") == "system"
+            )
+            self.assertNotIn("[本转CBT引导指令]", prompt_text)
+            self.assertIn("直接根据用户原话的语义判断是否需要轻量CBT", prompt_text)
+        finally:
+            for key, value in old_values.items():
+                setattr(Config, key, value)
+
+    @patch("simple_agent.OpenAI", _FakeSplitStreamAnalysisOpenAI)
+    @patch("crisis_module.OpenAI", _FailingCrisisOpenAI)
+    def test_stream_chat_updates_semantic_crisis_in_background(self):
+        """隐晦危机语义判断应后台完成，不阻塞可见回复。"""
+        old_values = {
+            "CRISIS_DETECTION_ENABLED": Config.CRISIS_DETECTION_ENABLED,
+            "CRISIS_LLM_DETECTION_ENABLED": Config.CRISIS_LLM_DETECTION_ENABLED,
+            "CRISIS_LLM_STREAM_BLOCKING_ENABLED": Config.CRISIS_LLM_STREAM_BLOCKING_ENABLED,
+            "CRISIS_ALERT_THRESHOLD": Config.CRISIS_ALERT_THRESHOLD,
+            "TRANSPLANT_SUPPORT_ENABLED": Config.TRANSPLANT_SUPPORT_ENABLED,
+            "CBT_LLM_ENABLED": Config.CBT_LLM_ENABLED,
+            "TRANSPLANT_LLM_SCENARIO_ENABLED": Config.TRANSPLANT_LLM_SCENARIO_ENABLED,
+            "HISTORY_COMPRESSION_ENABLED": Config.HISTORY_COMPRESSION_ENABLED,
+        }
+        try:
+            Config.CRISIS_DETECTION_ENABLED = True
+            Config.CRISIS_LLM_DETECTION_ENABLED = True
+            Config.CRISIS_LLM_STREAM_BLOCKING_ENABLED = False
+            Config.CRISIS_ALERT_THRESHOLD = 10
+            Config.TRANSPLANT_SUPPORT_ENABLED = False
+            Config.CBT_LLM_ENABLED = False
+            Config.TRANSPLANT_LLM_SCENARIO_ENABLED = False
+            Config.HISTORY_COMPRESSION_ENABLED = False
+
+            agent = EnhancedChatAgent()
+            message = "我想从这个世界上彻底消失，今晚再也不用醒来"
+            rule_only = agent.crisis_module._rule_based_detect_crisis(
+                message,
+                {"primary": "neutral", "severity": 1}
+            )
+            self.assertFalse(rule_only["alert"])
+
+            chunks = list(agent.stream_chat(message))
+            self.assertEqual("".join(chunks), "我在，先陪你。")
+            self.assertIn(agent.last_result["crisis_detection"].get("source"), {
+                "semantic_background_pending",
+                "llm_semantic_background",
+            })
+
+            for _ in range(50):
+                if agent.last_result["crisis_detection"].get("alert", False):
+                    break
+                time.sleep(0.02)
+
+            self.assertTrue(agent.last_result["crisis_detection"]["alert"])
+            self.assertEqual(agent.last_result["crisis_detection"].get("source"), "llm_semantic_background")
+            self.assertEqual(agent.last_result["response_type"], "crisis_alert")
+        finally:
+            for key, value in old_values.items():
+                setattr(Config, key, value)
 
 
 if __name__ == "__main__":

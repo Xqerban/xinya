@@ -2,9 +2,11 @@
 心理能量评估模型
 将对话质量转化为生长积分
 """
-from typing import Dict, List
+from typing import Dict, List, Optional
 import json
+import os
 from datetime import datetime
+from config import Config
 from keyword_library import (
     ENERGY_COGNITIVE_INDICATORS,
     ENERGY_COGNITIVE_DEEPENING_KEYWORDS,
@@ -54,8 +56,9 @@ ENERGY_LEVELS = [
 class PsychologicalEnergyModel:
     """心理能量评估模型"""
 
-    def __init__(self):
+    def __init__(self, data_dir: Optional[str] = None):
         """初始化能量模型"""
+        self.data_dir = data_dir or Config.DATA_DIR
         self.total_energy = 0
         self.dimension_scores = {
             EnergyDimension.COGNITIVE: 0,
@@ -974,7 +977,8 @@ class PsychologicalEnergyModel:
         except Exception as e:
             print(f"加载进度文件失败: {str(e)}")
     def _get_filepath(self, filename: str) -> str:
-        """获取文件的完整路径（统一放在 Code 目录下）"""
-        import os
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        return os.path.join(script_dir, filename)
+        """获取文件的完整路径（统一放在配置的数据目录下）"""
+        if os.path.isabs(filename):
+            return filename
+        os.makedirs(self.data_dir, exist_ok=True)
+        return os.path.join(self.data_dir, filename)

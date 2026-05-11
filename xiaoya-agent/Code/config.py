@@ -6,7 +6,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # 加载环境变量
-CONFIG_ENV_PATH = Path(__file__).resolve().parent.parent / 'config.env'
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+CONFIG_ENV_PATH = PROJECT_ROOT / 'config.env'
 load_dotenv(CONFIG_ENV_PATH)
 
 
@@ -15,8 +16,10 @@ class Config:
 
     # API配置
     API_BASE_URL = os.getenv('API_BASE_URL', 'https://api.deepseek.com')
-    API_KEY = os.getenv('API_KEY', 'sk-9895d0792ac243a997fd9a56dafaf0b1')
+    API_KEY = os.getenv('API_KEY', '')
     MODEL_NAME = os.getenv('MODEL_NAME', 'deepseek-chat')
+    _DATA_DIR = os.getenv('DATA_DIR', str(PROJECT_ROOT / 'data'))
+    DATA_DIR = str(Path(_DATA_DIR) if Path(_DATA_DIR).is_absolute() else PROJECT_ROOT / _DATA_DIR)
 
     # 对话配置
     TEMPERATURE = float(os.getenv('TEMPERATURE', '0.7'))
@@ -49,6 +52,7 @@ class Config:
 
     # 危机与情境 LLM 判定（关键词作为兜底）
     CRISIS_LLM_DETECTION_ENABLED = os.getenv('CRISIS_LLM_DETECTION_ENABLED', 'true').lower() == 'true'
+    CRISIS_LLM_STREAM_BLOCKING_ENABLED = os.getenv('CRISIS_LLM_STREAM_BLOCKING_ENABLED', 'false').lower() == 'true'
     TRANSPLANT_LLM_SCENARIO_ENABLED = os.getenv('TRANSPLANT_LLM_SCENARIO_ENABLED', 'true').lower() == 'true'
     LLM_DETECTION_MODEL = os.getenv('LLM_DETECTION_MODEL', MODEL_NAME)
     LLM_DETECTION_TEMPERATURE = float(os.getenv('LLM_DETECTION_TEMPERATURE', '0.4'))
@@ -60,6 +64,7 @@ class Config:
 
     # 自动保存配置
     AUTO_SAVE_PROGRESS = os.getenv('AUTO_SAVE_PROGRESS', 'true').lower() == 'true'
+    POST_STREAM_ANALYSIS_WAIT_SECONDS = float(os.getenv('POST_STREAM_ANALYSIS_WAIT_SECONDS', '0.2'))
 
     # 对话历史压缩配置（增量摘要/记忆中枢）
     HISTORY_COMPRESSION_ENABLED = os.getenv('HISTORY_COMPRESSION_ENABLED', 'true').lower() == 'true'

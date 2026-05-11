@@ -46,9 +46,11 @@ USER_FACING_ERROR_MESSAGE = "我刚刚有点卡住了，我们再试一次，好
 class EnhancedChatAgent:
     """增强版对话智能体类 - 集成CBT、心理能量和危机干预"""
 
-    def __init__(self):
+    def __init__(self, data_dir: Optional[str] = None, load_persistent_data: bool = True):
         """初始化智能体"""
         Config.validate_config()
+        self.data_dir = os.path.abspath(data_dir or Config.DATA_DIR)
+        os.makedirs(self.data_dir, exist_ok=True)
 
         self.client = OpenAI(
             api_key=Config.API_KEY,
@@ -60,6 +62,7 @@ class EnhancedChatAgent:
         self.max_tokens = Config.MAX_TOKENS
         self.system_prompt = Config.SYSTEM_PROMPT
         self.last_result: Optional[Dict[str, Any]] = None
+        self._pending_analysis_task: Optional[Dict[str, Any]] = None
 
         # 对话历史
         self.conversation_history: List[Dict[str, str]] = [
@@ -71,19 +74,24 @@ class EnhancedChatAgent:
 
         # 初始化增强模块
         self.cbt_module = CBTModule()
-        self.energy_model = PsychologicalEnergyModel()
+        self.energy_model = PsychologicalEnergyModel(data_dir=self.data_dir)
 
         # 危机干预模块（带报警回调）
-        self.crisis_module = CrisisInterventionModule(alert_callback=self._crisis_alert_callback)
+        self.crisis_module = CrisisInterventionModule(
+            alert_callback=self._crisis_alert_callback,
+            data_dir=self.data_dir,
+        )
 
         # 加载历史数据
-        self._load_persistent_data()
+        if load_persistent_data:
+            self._load_persistent_data()
 
         # 用户状态（分期等）
         self.user_state: Dict[str, any] = {
             "transplant_phase": TransplantPhase.PREP.value
         }
-        self._load_user_state()
+        if load_persistent_data:
+            self._load_user_state()
 
     def build_fast_opening(self, user_message: str) -> str:
         """生成两阶段流式的首句，用于快速首响。"""
@@ -124,19 +132,32 @@ class EnhancedChatAgent:
 
         # 2. 危机检测：优先使用综合分析结果，失败则降级到模块独立调用
         if unified is not None:
-            crisis_info = unified["crisis"]
-            sev = crisis_info["severity_score"]
-            threshold = getattr(Config, "CRISIS_ALERT_THRESHOLD", 10)
-            alert = crisis_info["has_crisis"] and sev >= threshold
-            if alert:
-                self.crisis_module._record_crisis_event(user_message, sev)
-                self.crisis_module._trigger_alert({"alert": True})
-            crisis_detection = {"alert": alert}
+            crisis_detection = self._crisis_detection_from_unified(unified)
+            if crisis_detection.get("alert", False):
+                self.crisis_module._record_crisis_event(
+                    user_message,
+                    crisis_detection.get("severity_score"),
+                )
+                self.crisis_module._trigger_alert({
+                    "alert": True,
+                    "alert_type": crisis_detection.get("alert_type", "psychological_crisis"),
+                    "source": crisis_detection.get("source"),
+                })
         else:
-            crisis_detection = self.crisis_module.detect_crisis(
+            crisis_detection = self.crisis_module.assess_crisis_semantic_only(
                 user_message,
                 cbt_analysis.get("emotional_state", {})
             )
+            if crisis_detection.get("alert", False):
+                self.crisis_module._record_crisis_event(
+                    user_message,
+                    crisis_detection.get("severity_score"),
+                )
+                self.crisis_module._trigger_alert({
+                    "alert": True,
+                    "alert_type": crisis_detection.get("alert_type", "psychological_crisis"),
+                    "source": crisis_detection.get("source"),
+                })
 
         # 3. 准备对话数据
         conversation_data = {
@@ -199,7 +220,7 @@ class EnhancedChatAgent:
                 "response_type": response_type,
                 "cbt_analysis": serialized_cbt_analysis,
                 "crisis_detection": serialized_crisis_detection,
-                "user_state": self.user_state
+                "user_state": dict(self.user_state)
             }
         })
 
@@ -234,17 +255,16 @@ class EnhancedChatAgent:
 
     def stream_chat(self, user_message: str) -> Iterator[str]:
         """
-        流式链路采用“模型先行 + 分析后台增强”：
-        - 首 token 前只保留本地硬安全快筛；
-        - 不再等待综合 LLM 分析，避免规则/分析阻塞可见回复；
+        流式链路采用“本地硬安全快筛 + 回复模型先行 + 语义分析后台增强”：
+        - 首 token 前不等待危机 LLM，避免一做语义判断就变慢；
+        - 危机语义判断在后台并行完成，完成后更新 last_result 和报警状态；
+        - 身体红旗仍用本地关键词硬快筛，保证医疗安全提醒足够直接；
+        - CBT 介入不再由本地关键词/规则触发，主回复模型直接按用户原话做语义判断；
         - CBT、危机和移植情境的综合分析在后台并行完成，用于本轮元数据或后续轮次。
         """
         current_phase = self.get_transplant_phase()
-        cbt_analysis = self.cbt_module._rule_based_analyze_user_input(user_message)
-        crisis_detection = self.crisis_module._rule_based_detect_crisis(
-            user_message,
-            cbt_analysis.get("emotional_state", {})
-        )
+        cbt_analysis = self._pending_semantic_cbt_analysis()
+        crisis_detection = self._assess_crisis_for_stream(user_message, cbt_analysis)
         response_context = self._build_stream_response_context(
             user_message=user_message,
             current_phase=current_phase,
@@ -256,6 +276,10 @@ class EnhancedChatAgent:
             "analysis": cbt_analysis,
             "crisis_detection": crisis_detection
         }
+
+        analysis_task = None
+        if self._should_start_background_analysis(user_message):
+            analysis_task = self._start_unified_analysis_task(user_message, current_phase)
 
         safety_alert = self._build_safety_alert(user_message, cbt_analysis, crisis_detection)
         if safety_alert:
@@ -282,12 +306,9 @@ class EnhancedChatAgent:
                 conversation_data=conversation_data,
                 current_phase=current_phase,
                 run_post_analysis=False,
+                analysis_task=analysis_task,
                 chunk_size=36,
             )
-
-        analysis_task = None
-        if self._should_start_background_analysis(user_message):
-            analysis_task = self._start_unified_analysis_task(user_message, current_phase)
 
         if response_context.get("phase") and response_context["phase"] != current_phase:
             self.set_transplant_phase(response_context["phase"])
@@ -303,6 +324,17 @@ class EnhancedChatAgent:
             response_context=response_context,
             analysis_task=analysis_task,
         )
+
+    def _pending_semantic_cbt_analysis(self) -> Dict[str, Any]:
+        """流式首轮占位分析：不使用 CBT 关键词/规则，等待后台语义分析补充。"""
+        return {
+            "emotional_state": {"primary": "neutral", "severity": 1, "details": {}},
+            "cognitive_distortions": [],
+            "problem_severity": 1,
+            "intervention_needed": False,
+            "recommended_technique": None,
+            "source": "semantic_background_pending",
+        }
 
     def _finalize_chat_turn(
         self,
@@ -334,6 +366,9 @@ class EnhancedChatAgent:
             "content": user_message
         })
 
+        if crisis_detection.get("alert", False) and response_type == "cbt_response":
+            response_type = "crisis_alert"
+
         serialized_cbt_analysis = self._serialize_analysis_data(cbt_analysis)
         serialized_crisis_detection = self._serialize_analysis_data(crisis_detection)
 
@@ -344,7 +379,7 @@ class EnhancedChatAgent:
                 "response_type": response_type,
                 "cbt_analysis": serialized_cbt_analysis,
                 "crisis_detection": serialized_crisis_detection,
-                "user_state": self.user_state
+                "user_state": dict(self.user_state)
             }
         })
 
@@ -379,6 +414,12 @@ class EnhancedChatAgent:
         }
 
         if analysis_task is not None and not analysis_task["event"].is_set():
+            self._pending_analysis_task = {
+                "task": analysis_task,
+                "user_message": user_message,
+                "response": response,
+                "current_phase": current_phase,
+            }
             threading.Thread(
                 target=self._finish_background_analysis_task,
                 args=(analysis_task, user_message, response, current_phase),
@@ -496,6 +537,26 @@ class EnhancedChatAgent:
         else:
             return data
 
+    def _update_last_assistant_metadata(
+        self,
+        response: str,
+        cbt_analysis: Dict,
+        crisis_detection: Dict,
+        response_type: Optional[str] = None,
+    ) -> None:
+        """同步更新最后一条匹配回复的 assistant 元数据。"""
+        for message in reversed(self.conversation_history):
+            if message.get("role") != "assistant" or message.get("content") != response:
+                continue
+
+            metadata = message.setdefault("metadata", {})
+            if response_type:
+                metadata["response_type"] = response_type
+            metadata["cbt_analysis"] = self._serialize_analysis_data(cbt_analysis)
+            metadata["crisis_detection"] = self._serialize_analysis_data(crisis_detection)
+            metadata["user_state"] = dict(self.user_state)
+            return
+
     def save_history(self, filename: str = "chat_history.json"):
         """保存对话历史到文件"""
         filepath = self._get_filepath(filename)
@@ -529,6 +590,9 @@ class EnhancedChatAgent:
                 "[实时回复要求] 直接回应用户原话，第一句自然、具体、共情。"
                 "总长度控制在80到180字；不要长篇大论，不要反复表达同一个点。"
                 "只给一个核心安慰点和一个很小的下一步或问题。"
+                "不要依赖本地关键词标签；直接根据用户原话的语义判断是否需要轻量CBT。"
+                "若用户表达焦虑、低落、绝望、愧疚、愤怒、灾难化或全或无思维，"
+                "可以自然融入一个很小的CBT方向引导；若只是闲聊或事实问题，不要强行CBT。"
                 "保持积极乐观但不空泛，不承诺治疗结果。"
                 "若用户出现安全风险或明显身体红旗，优先建议联系护士/医生，不继续CBT。"
                 "输出必须是普通纯文本，不使用Markdown，不使用标题、列表、加粗、引用、代码块或链接语法。"
@@ -618,7 +682,7 @@ class EnhancedChatAgent:
                 ),
             }
 
-        if self._has_severe_emotional_state(user_message, analysis):
+        if self._has_severe_emotional_state(user_message, analysis, crisis_detection):
             return {
                 "alert_type": "severe_emotional_distress",
                 "response_type": "severe_distress_alert",
@@ -632,11 +696,48 @@ class EnhancedChatAgent:
 
         return None
 
+    def _assess_crisis_for_stream(self, user_message: str, analysis: Dict) -> Dict[str, Any]:
+        """流式入口不做心理危机规则判断，交给后台语义判断补充。"""
+        if not getattr(Config, "CRISIS_DETECTION_ENABLED", True):
+            return {"alert": False, "source": "disabled"}
+
+        emotional_state = (analysis or {}).get("emotional_state", {})
+
+        if getattr(Config, "CRISIS_LLM_STREAM_BLOCKING_ENABLED", False):
+            return self.crisis_module.assess_crisis_semantic_only(
+                user_message,
+                emotional_state,
+            )
+
+        return {
+            "alert": False,
+            "alert_type": None,
+            "source": "semantic_background_pending",
+            "severity_score": 0,
+            "crisis_types": [],
+            "reason": "流式回复不使用心理危机关键词规则；危机状态由后台语义分析补充。",
+        }
+
     def _has_medical_red_flag(self, user_message: str) -> bool:
         """移植病房身体红旗：先转医护，不继续心理引导。"""
         return contains_any(user_message, MEDICAL_RED_FLAG_KEYWORDS)
 
-    def _has_severe_emotional_state(self, user_message: str, analysis: Dict) -> bool:
+    def _has_severe_emotional_state(
+        self,
+        user_message: str,
+        analysis: Dict,
+        crisis_detection: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        crisis_detection = crisis_detection or {}
+        if crisis_detection.get("source") == "semantic_background_pending":
+            return False
+
+        if crisis_detection.get("source") == "llm_semantic":
+            severity_score = int(crisis_detection.get("severity_score", 0) or 0)
+            crisis_types = crisis_detection.get("crisis_types") or []
+            warning_threshold = max(7, getattr(Config, "CRISIS_ALERT_THRESHOLD", 10) - 2)
+            return bool(crisis_types) and severity_score >= warning_threshold
+
         emotional = (analysis or {}).get("emotional_state", {}) or {}
         severity = int(emotional.get("severity", 0) or 0)
         problem_severity = int((analysis or {}).get("problem_severity", 0) or 0)
@@ -677,6 +778,8 @@ class EnhancedChatAgent:
         task: Dict[str, Any] = {
             "event": threading.Event(),
             "result": None,
+            "lock": threading.Lock(),
+            "consumed": False,
         }
 
         def run_analysis() -> None:
@@ -732,8 +835,15 @@ class EnhancedChatAgent:
         crisis_detection = self._crisis_detection_from_unified(unified) or fallback_crisis
 
         if crisis_detection.get("alert", False) and not (fallback_crisis or {}).get("alert", False):
-            self.crisis_module._record_crisis_event(user_message)
-            self.crisis_module._trigger_alert({"alert": True})
+            self.crisis_module._record_crisis_event(
+                user_message,
+                crisis_detection.get("severity_score"),
+            )
+            self.crisis_module._trigger_alert({
+                "alert": True,
+                "alert_type": crisis_detection.get("alert_type", "psychological_crisis"),
+                "source": crisis_detection.get("source"),
+            })
 
         tp = unified.get("transplant") or {}
         phase = tp.get("phase")
@@ -748,35 +858,79 @@ class EnhancedChatAgent:
         user_message: str,
         response: str,
         current_phase: Optional[TransplantPhase],
+        timeout_seconds: Optional[float] = None,
     ) -> None:
         """回复结束后继续等待后台分析，供后续轮次和 last_result 使用。"""
         try:
-            event = task.get("event")
-            if event is None:
-                return
+            task_lock = task.get("lock")
+            if task_lock is None:
+                task_lock = threading.Lock()
+                task["lock"] = task_lock
 
-            timeout_seconds = float(os.getenv("BACKGROUND_ANALYSIS_TIMEOUT_SECONDS", "8"))
-            if not event.wait(timeout=timeout_seconds):
-                return
+            with task_lock:
+                if task.get("consumed", False):
+                    return
 
-            unified = task.get("result")
-            if not unified:
-                return
+                event = task.get("event")
+                if event is None:
+                    return
 
-            fallback = self.last_result or {}
-            cbt_analysis, crisis_detection = self._apply_unified_analysis_result(
-                unified=unified,
-                user_message=user_message,
-                fallback_analysis=fallback.get("cbt_analysis", {}),
-                fallback_crisis=fallback.get("crisis_detection", {}),
-                current_phase=current_phase,
-            )
+                if timeout_seconds is None:
+                    timeout_seconds = float(os.getenv("BACKGROUND_ANALYSIS_TIMEOUT_SECONDS", "8"))
+                if not event.wait(timeout=timeout_seconds):
+                    return
 
-            if self.last_result and self.last_result.get("response") == response:
-                self.last_result["cbt_analysis"] = cbt_analysis
-                self.last_result["crisis_detection"] = crisis_detection
+                unified = task.get("result")
+                if not unified:
+                    task["consumed"] = True
+                    return
+
+                fallback = self.last_result or {}
+                cbt_analysis, crisis_detection = self._apply_unified_analysis_result(
+                    unified=unified,
+                    user_message=user_message,
+                    fallback_analysis=fallback.get("cbt_analysis", {}),
+                    fallback_crisis=fallback.get("crisis_detection", {}),
+                    current_phase=current_phase,
+                )
+
+                if self.last_result and self.last_result.get("response") == response:
+                    self.last_result["cbt_analysis"] = cbt_analysis
+                    self.last_result["crisis_detection"] = crisis_detection
+                    if crisis_detection.get("alert", False):
+                        self.last_result["response_type"] = "crisis_alert"
+                        self.last_result["energy_assessment"] = None
+                        self.last_result["energy_report"] = None
+                    self._update_last_assistant_metadata(
+                        response=response,
+                        cbt_analysis=cbt_analysis,
+                        crisis_detection=crisis_detection,
+                        response_type=self.last_result.get("response_type"),
+                    )
+                task["consumed"] = True
+                if self._pending_analysis_task and self._pending_analysis_task.get("task") is task:
+                    self._pending_analysis_task = None
         except Exception:
             logger.exception("消费后台综合分析结果失败")
+
+    def wait_for_background_analysis(self, timeout_seconds: Optional[float] = None) -> bool:
+        """短暂等待本轮后台分析完成；用于 API done 前合并已完成的语义结果。"""
+        pending = self._pending_analysis_task
+        if not pending:
+            return False
+
+        task = pending.get("task")
+        if not task:
+            return False
+
+        self._finish_background_analysis_task(
+            task=task,
+            user_message=pending.get("user_message", ""),
+            response=pending.get("response", ""),
+            current_phase=pending.get("current_phase"),
+            timeout_seconds=timeout_seconds,
+        )
+        return bool(task.get("consumed", False))
 
     def _should_run_preflight_analysis(
         self,
@@ -819,13 +973,20 @@ class EnhancedChatAgent:
             "recommended_technique": unified.get("recommended_technique"),
         }
 
-    def _crisis_detection_from_unified(self, unified: Dict) -> Dict[str, bool]:
+    def _crisis_detection_from_unified(self, unified: Dict) -> Dict[str, Any]:
         """将综合分析里的危机分数转换为当前链路的报警标记。"""
         crisis_info = unified.get("crisis") or {}
         severity_score = int(crisis_info.get("severity_score", 0) or 0)
         threshold = getattr(Config, "CRISIS_ALERT_THRESHOLD", 10)
         alert = bool(crisis_info.get("has_crisis", False)) and severity_score >= threshold
-        return {"alert": alert}
+        return {
+            "alert": alert,
+            "alert_type": "psychological_crisis" if alert else None,
+            "source": "llm_semantic_background",
+            "severity_score": severity_score,
+            "crisis_types": crisis_info.get("crisis_types") or [],
+            "reason": crisis_info.get("reason", ""),
+        }
 
     def _build_stream_response_context_from_unified(
         self,
@@ -937,6 +1098,8 @@ class EnhancedChatAgent:
     def _should_add_cbt_guidance(self, analysis: Dict) -> bool:
         """判断是否需要追加CBT引导（危机由 crisis_module 处理）"""
         if not Config.CBT_ENABLED or not Config.AUTO_CBT_INTERVENTION:
+            return False
+        if (analysis or {}).get("source") == "semantic_background_pending":
             return False
 
         emotional = (analysis or {}).get("emotional_state", {}) or {}
@@ -1336,6 +1499,8 @@ class EnhancedChatAgent:
             "message": "所有数据已重置，系统已恢复到初始状态"
         }
     def _get_filepath(self, filename: str) -> str:
-        """获取文件的完整路径（统一放在 Code 目录下）"""
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        return os.path.join(script_dir, filename)
+        """获取文件的完整路径（统一放在当前 agent 的数据目录下）"""
+        if os.path.isabs(filename):
+            return filename
+        os.makedirs(self.data_dir, exist_ok=True)
+        return os.path.join(self.data_dir, filename)

@@ -1,374 +1,330 @@
-# 小芽 - 骨髓移植患者心理支持智能体
+# 小芽 - 骨髓移植患者数字心理陪伴智能体
 
-**小芽**是一个专为骨髓移植患者设计的AI心理伙伴，集成了认知行为疗法（CBT）、心理能量评估、危机干预和分期引导等功能，为患者在移植全程提供专业的心理支持和陪伴。
+小芽是一个面向骨髓移植患者的中文心理支持智能体。当前项目同时提供命令行入口和 HTTP API 入口，核心能力包括：骨髓移植分期陪伴、CBT 认知行为疗法引导、心理能量评估、语义危机判断、对话记忆压缩和面向后端系统的流式接口。
 
-## ✨ 核心特性
+> 说明：小芽提供心理陪伴和风险提示，不替代医生、护士、心理治疗师或紧急救援服务。真实业务接入时，危机报警必须连接院内人工处置流程。
 
-### 🌱 骨髓移植分期支持
-- **三阶段智能管理**：移植前准备期、移植中关键期、移植后恢复期
-- **13种典型情境识别**：LLM智能识别患者所处情境，提供针对性引导
-- **自然语言改写**：引导语根据用户表达轻量改写，避免机械感
-- **关键词兜底机制**：LLM不可用时自动回退到关键词匹配
+## 当前能力
 
-### 🧠 CBT认知行为疗法
-- **LLM优先分析**：智能识别情绪状态、认知扭曲和问题严重程度
-- **门控机制**：仅在需要时触发CBT建议（情绪强度≥6或存在认知扭曲）
-- **8种CBT技术**：认知重构、行为激活、放松训练、正念练习、问题解决等
-- **个性化干预**：根据用户状态推荐最合适的CBT技术
+| 能力 | 当前实现 |
+|---|---|
+| 对话生成 | `EnhancedChatAgent.stream_chat()` 模型优先流式输出，CLI 和 API 共用该核心流程 |
+| 骨髓移植分期 | 支持移植前准备期、移植中关键期、移植后恢复期；默认流式路径把命中的场景话术作为主回复提示素材，非流式路径可能直接返回模板话术 |
+| CBT 支持 | 默认流式主流程不使用本地关键词/规则触发 CBT；主回复模型按用户原话语义决定是否自然融入轻量 CBT，后台统一语义分析再补充结构化结果 |
+| 危机判断 | 默认不在首 token 前阻塞等待危机 LLM；心理危机由后台语义分析补充，身体红旗仍本地快速拦截 |
+| 心理能量 | 记录认知成长、情绪调节、行为改变、社交连接、自我效能五个维度 |
+| 记忆中枢 | 每轮后异步生成/更新摘要，下一轮只传系统提示、记忆摘要和当前问题 |
+| API 会话隔离 | 每个 `sessionId` 独立持久化到 `data/sessions/<sessionId>` |
+| 输出格式 | CLI/API 共用 `response_formatting.markdown_to_plain_text()`，减少 Markdown 符号进入终端或客户端 |
 
-### ⚡ 心理能量评估
-- **5维度成长跟踪**：认知、情绪、行为、社会、自我效能
-- **6级成长体系**：萌芽(0-100) → 生长(101-300) → 茁壮(301-600) → 旺盛(601-1000) → 绽放(1001-1500) → 和谐(1501-2000)
-- **成就系统**：解锁心理成长里程碑
-- **可视化反馈**：实时显示能量增长和等级进度
+## 项目结构
 
-### 🚨 危机干预系统
-- **LLM语义理解**：智能识别无助、绝望、自杀等危机信号
-- **阈值控制**：可配置报警阈值（默认10），仅在严重情况下触发
-- **直接报警机制**：检测到危机时立即触发报警，不输出常规回复
-- **正念接地练习**：提供5-4-3-2-1 grounding技术
-- **危机历史追踪**：记录和分析危机事件
-
-### 🧩 记忆中枢（增量摘要）
-- **每轮自动更新**：对话后立即生成/更新记忆摘要
-- **智能信息提取**：自动识别核心问题、情绪变化、重要进展
-- **极致token节省**：节省95%以上token消耗
-- **恒定响应速度**：无论对话多长，传入API的消息量保持恒定
-- **支持超长对话**：可进行几百轮甚至上千轮对话
-
-## 🏗️ 技术架构
-
-### 双引擎架构
-```
-LLM优先 + 关键词兜底
-
-危机检测：LLM语义分析 → 关键词匹配（兜底）
-CBT分析：LLM情绪识别 → 规则分析（兜底）
-情境识别：LLM场景理解 → 关键词匹配（兜底）
+```text
+Xiaoya/
+├─ Code/
+│  ├─ main.py                  # 命令行入口
+│  ├─ api_server.py            # Flask/SSE API 服务
+│  ├─ simple_agent.py          # 智能体主流程
+│  ├─ cbt_module.py            # CBT 分析与引导
+│  ├─ crisis_module.py         # 危机语义判断、关键词兜底和报警记录
+│  ├─ energy_model.py          # 心理能量评估与成就系统
+│  ├─ transplant_support.py    # 骨髓移植分期与场景话术
+│  ├─ response_formatting.py   # 共享输出清洗工具
+│  ├─ keyword_library.py       # 关键词、场景标签、情绪标签
+│  ├─ config.py                # 配置读取与默认值
+│  └─ test_agent.py            # 综合测试
+├─ File/                       # 项目参考资料
+├─ data/                       # 运行数据，默认忽略提交
+├─ config.env                  # 本地开发配置
+├─ config.env.example          # 配置模板
+├─ Agent-api.md                # API 接口说明
+├─ 小芽项目技术说明文档.docx     # 面向技术人员的完整说明文档
+└─ requirements.txt
 ```
 
-确保系统在API不可用时仍能提供基础服务。
+## 快速开始
 
-### 记忆中枢工作原理
-```
-传统模式（token线性增长）：
-第1轮:  [system] + [msg1] → 100 tokens
-第10轮: [system] + [msg1...msg10] → 1000 tokens
-第100轮: [system] + [msg1...msg100] → 10000 tokens
+### 1. 安装依赖
 
-记忆中枢模式（token恒定）：
-第1轮:  [system] + [msg1] → 100 tokens
-第10轮: [system] + [记忆摘要] + [msg10] → 500 tokens
-第100轮: [system] + [记忆摘要] + [msg100] → 500 tokens
-```
-
-## 🚀 快速开始
-
-### 环境要求
-- Python 3.8+
-- 虚拟环境（推荐）
-- DeepSeek API密钥（或其他兼容OpenAI的API）
-
-### 安装步骤
-
-1. **克隆项目**
-```bash
-git clone <repository-url>
-cd Xiaoya
-```
-
-2. **创建并激活虚拟环境**
-```bash
-# 创建虚拟环境
+```powershell
 python -m venv .venv
-
-# 激活虚拟环境
-# Windows:
-.venv\Scripts\activate
-# Linux/Mac:
-source .venv/bin/activate
-```
-
-3. **安装依赖**
-```bash
+.\.venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-依赖包：
-- `openai>=1.0.0` - OpenAI API客户端
-- `requests>=2.25.0` - HTTP请求库
-- `python-dotenv>=0.19.0` - 环境变量管理
-- `colorama>=0.4.4` - 终端彩色输出
+### 2. 配置模型
 
-4. **配置API密钥**
+复制配置模板并填写本地密钥：
 
-编辑 `config.env` 文件，设置你的API密钥：
-```env
-API_KEY=your_api_key_here
+```powershell
+Copy-Item config.env.example config.env
 ```
 
-5. **启动程序**
-```bash
-# 方式1：命令行启动
-cd Code
-python main.py
-
-# 方式2：使用启动脚本（Windows）
-start.bat
-```
-
-## ⚙️ 配置说明
-
-### 核心配置 (`config.env`)
+最少需要配置：
 
 ```env
-# API配置
 API_BASE_URL=https://api.deepseek.com
 API_KEY=your_api_key_here
 MODEL_NAME=deepseek-chat
-
-# 对话配置
-TEMPERATURE=0.7
-MAX_TOKENS=1000
-
-# 系统提示（可自定义小芽的人格）
-SYSTEM_PROMPT=你是一个专业的心理健康助手，采用认知行为疗法(CBT)的方法来帮助用户...
-
-# CBT配置
-CBT_ENABLED=true
-AUTO_CBT_INTERVENTION=true
-CBT_LLM_ENABLED=true
-CBT_INTERVENTION_SEVERITY_THRESHOLD=6
-CBT_DISTORTION_TRIGGER_ENABLED=true
-
-# 危机干预配置
-CRISIS_DETECTION_ENABLED=true
-CRISIS_ALERT_THRESHOLD=10
-CRISIS_LLM_DETECTION_ENABLED=true
-
-# 移植分期支持
-TRANSPLANT_SUPPORT_ENABLED=true
-TRANSPLANT_LLM_SCENARIO_ENABLED=true
-
-# 能量评估配置
-ENERGY_MODEL_ENABLED=true
-ENERGY_FEEDBACK_ENABLED=true
-
-# 记忆中枢配置
-HISTORY_COMPRESSION_ENABLED=true
-INCREMENTAL_SUMMARY_MAX_WORDS=300
-DEBUG_MEMORY_CORE=false
-
-# LLM检测配置
-LLM_DETECTION_MODEL=deepseek-chat
-LLM_DETECTION_TEMPERATURE=0.4
-LLM_DETECTION_MAX_TOKENS=256
-
-# 自动保存
-AUTO_SAVE_PROGRESS=true
+DATA_DIR=data
 ```
 
-### 关键参数说明
+开发阶段可以把真实 API key 写在 `config.env` 中。正式部署时建议改为部署平台的环境变量或密钥管理服务。
 
-| 参数 | 说明 | 默认值 | 推荐值 |
-|------|------|--------|--------|
-| `CRISIS_ALERT_THRESHOLD` | 危机报警阈值（1-10） | 10 | 8-10 |
-| `CBT_INTERVENTION_SEVERITY_THRESHOLD` | CBT触发阈值（1-10） | 6 | 5-7 |
-| `INCREMENTAL_SUMMARY_MAX_WORDS` | 记忆中枢最大字数 | 300 | 200-500 |
-| `HISTORY_COMPRESSION_ENABLED` | 启用记忆中枢 | true | true |
-| `TEMPERATURE` | 回复创造性（0-1） | 0.7 | 0.6-0.8 |
+### 3. 启动命令行项目
 
-## 📖 使用指南
+```powershell
+python Code\main.py
+```
 
-### 可用命令
+可用命令：
 
-| 命令 | 功能 |
-|------|------|
-| `quit/exit` | 退出程序（自动保存进度） |
-| `save` | 手动保存所有进度数据 |
-| `load` | 加载对话历史 |
-| `phase` | 查看/设置骨髓移植分期（`phase pre/key/post`） |
+| 命令 | 作用 |
+|---|---|
+| `help` | 查看命令 |
+| `phase` | 查看或设置移植分期 |
 | `energy` | 查看心理能量报告 |
-| `progress` | 查看综合进步报告 |
-| `grounding` | 获取正念接地练习 |
-| `reset` | 重置所有数据 |
-| `help` | 显示帮助信息 |
+| `progress` | 查看综合进度报告 |
+| `grounding` | 获取 5-4-3-2-1 正念落地练习 |
+| `save` | 手动保存进度 |
+| `load` | 加载历史数据 |
+| `reset` | 重置对话和进度数据 |
+| `quit` / `exit` | 退出程序 |
 
-### 使用示例
+### 4. 启动 API 服务
 
-```
-欢迎使用小芽智能体（测试版）
-============================================================
- 集成的功能:
-  - CBT (认知行为疗法) 对话策略
-  - 心理能量评估系统
-  - 实时危机干预检测
-------------------------------------------------------------
-
-你: 你好，我是第一次来
-智能体: 您好，我是您的伙伴"小芽"。在接下来的这段旅程里，我会一直在这里
-        陪伴您。我们不是一个人在战斗，而是一个团队。
-
-你: 我真的很焦虑很害怕，撑不住了
-智能体: 我听见你很难受。
-        如果你愿意，我们可以试一个小练习：
-        [粉红色显示] 我们先让身体"降一点点噪音"。如果你愿意，跟我做两轮
-        呼吸就好：慢慢吸气，让气息到腹部；再更慢地呼气，像把紧绷一点点放下...
-
- 心理能量反馈:
-  本次成长:
-    情绪调节: +5 点
-  当前等级: 萌芽
-  总能量: 15 点
-  等级进度: 15.0%
+```powershell
+python Code\api_server.py
 ```
 
-## 📁 项目结构
+健康检查：
 
-```
-Xiaoya/
-├── Code/
-│   ├── main.py                      # 主程序入口（命令行界面）
-│   ├── simple_agent.py              # 智能体核心类
-│   ├── cbt_module.py                # CBT对话策略模块
-│   ├── energy_model.py              # 心理能量评估模型
-│   ├── crisis_module.py             # 危机干预模块
-│   ├── transplant_support.py        # 骨髓移植分期支持
-│   ├── config.py                    # 配置管理
-│   ├── test_agent.py                # 综合测试脚本
-│   └── test_incremental_summary.py  # 记忆中枢测试脚本
-├── File/                            # 文档资料
-│   ├── "心芽"——移植病房数字心理人积极心理暗.docx
-│   ├── "心芽"分阶段积极心理暗示引导语库2.docx
-│   ├── 双引擎架构.pdf
-│   └── 护理逻辑.pdf
-├── config.env                       # 配置文件
-├── requirements.txt                 # 依赖包列表
-├── start.bat                        # 快速启动脚本（Windows）
-└── README.md                        # 本文档
+```powershell
+curl http://127.0.0.1:8001/health
 ```
 
-## 🔧 核心模块
+核心接口：
 
-### 智能体核心 (`simple_agent.py`)
-- **多模块集成**：统一管理CBT、能量模型、危机干预和移植支持
-- **智能路由**：危机 → 移植引导 → CBT
-- **记忆中枢**：每轮对话后自动更新记忆，只传入摘要+当前问题
-- **进度持久化**：自动保存对话历史、用户状态、能量进度、危机记录
+| 接口 | 方法 | 说明 |
+|---|---|---|
+| `/v1/psych/chat` | `POST` | 心理陪伴对话，返回 SSE 流 |
+| `/v1/psych/recommendations` | `POST` | 根据阶段、能量和情绪生成推荐提问 |
+| `/health` | `GET` | 服务健康检查 |
 
-### CBT模块 (`cbt_module.py`)
-- **LLM优先分析**：使用大语言模型进行情绪和认知分析
-- **规则兜底**：LLM不可用时使用关键词和规则
-- **情绪识别**：悲伤、焦虑、愤怒、绝望、内疚、平静、希望等
-- **认知扭曲检测**：全或无思维、灾难化、负面过滤、过度概括、读心术
-- **8种CBT技术**：认知重构、行为激活、问题解决、放松训练、暴露技术、正念练习、思维记录、活动安排
- 
-### 移植支持模块 (`transplant_support.py`)
-- **分期管理**：维护用户的移植分期状态
-- **情境识别**：LLM优先识别13种典型情境
-- **引导语管理**：管理各分期各情境的引导语模板
-- **自然改写**：使用LLM轻量改写，避免机械背诵
+## 主流程
 
-### 能量模型 (`energy_model.py`)
-- **多维度评估**：5个成长维度的积分系统
-- **成就系统**：解锁成长里程碑
-- **等级系统**：6个成长等级的晋升机制
-- **趋势分析**：长期进步数据分析
-
-### 危机干预 (`crisis_module.py`)
-- **LLM优先检测**：使用大语言模型进行语义理解
-- **关键词兜底**：识别自杀、自伤等危机信号
-- **阈值控制**：可配置的报警阈值
-- **正念练习**：5-4-3-2-1 grounding技术
-
-### 配置管理 (`config.py`)
-- **环境变量加载**：从 `config.env` 加载各项参数
-- **配置验证**：确保必要配置项完整
-- **功能开关**：控制各模块的启用状态
-
-## 🧪 测试
-
-### 运行综合测试
-```bash
-cd Code
-python test_agent.py
+```mermaid
+flowchart TD
+    A["用户输入"] --> B["CLI 或 API 入口"]
+    B --> C["EnhancedChatAgent.stream_chat"]
+    C --> D["本地硬安全/场景快筛：身体红旗、移植场景"]
+    D --> E["模型优先流式回复：语义决定是否融入轻量CBT"]
+    D --> F["后台统一语义分析：CBT / 危机 / 移植情境"]
+    E --> G["写入对话历史和元数据"]
+    F --> H["完成后更新 last_result、危机状态和推荐问题"]
+    G --> I["心理能量评估"]
+    G --> J["异步记忆中枢摘要"]
+    I --> K["保存到 data 目录"]
+    J --> K
 ```
 
-测试覆盖：
-- ✅ 基础对话流程
-- ✅ CBT门控机制
-- ✅ 移植情境识别
-- ✅ 危机报警机制
-- ✅ 用户状态持久化
-- ✅ 能量模型保存和加载
-- ✅ 重置功能
+CLI 和 API 的关键一致性在于：两者都调用 `agent.stream_chat(message)`，结束后都调用 `agent.wait_for_background_analysis(Config.POST_STREAM_ANALYSIS_WAIT_SECONDS)`，并使用同一套结果字段 `last_result`。
 
-### 测试记忆中枢
-```bash
-cd Code
-python test_incremental_summary.py
-```
+默认流式请求的处理顺序：
 
-测试内容：
-- 模拟8轮对话
-- 显示每轮记忆中枢状态
-- 显示传入API的消息结构
-- 对比token消耗
+1. 读取当前移植分期，准备本轮上下文。
+2. 生成 CBT 占位分析 `semantic_background_pending`，不做本地 CBT 关键词/规则判断。
+3. 危机判断默认也先占位，不在首 token 前等待危机 LLM。
+4. 本地只做硬安全和轻量场景检查：身体红旗会直接返回联系医护的固定提醒；移植场景命中时只作为主回复模型的参考素材。
+5. 启动后台统一语义分析 LLM-2，并立即调用主回复模型 LLM-1 流式输出。
+6. 回复结束后写入历史、做心理能量评估、生成 `last_result`，并异步更新记忆中枢 LLM-3。
+7. 后台语义分析如果在等待窗口内完成，就把 CBT、危机和移植情境结构化结果合并到 `last_result` 和 API `done` 事件。
 
-## 💾 记忆中枢详解
+## 危机判断策略
 
-### 记忆中枢示例
+当前代码对“心理危机”默认采用语义判断，不再让关键词规则直接打断流式回复：
 
-```
-用户是骨髓移植患者，对手术感到焦虑（强度7/10），主要担心排异反应。
-家人支持但用户仍感恐惧。睡眠质量差，经常做噩梦。已尝试深呼吸但效果
-不明显，正在寻求更有效的焦虑缓解方法。通过CBT认知重构，情绪状态有
-所改善。
-```
+| 场景 | 当前策略 |
+|---|---|
+| 普通流式对话 | 首 token 前不等待危机 LLM，避免回复明显变慢 |
+| 后台分析完成较快 | API `done` 事件中会合并最新语义危机结果 |
+| 后台分析较慢 | 先完成回复，语义结果在 `last_result` 中后置更新 |
+| 明显身体红旗 | 本地关键词快速提醒联系医护，如发热、胸痛、呼吸困难等 |
+| 非流式语义判断 | `assess_crisis_semantic_only()` 只走 LLM，不回退关键词 |
+| 传统兜底方法 | `assess_crisis()` 仍保留 LLM 失败后的关键词兜底，但不是默认流式心理危机入口 |
 
-### 工作流程
+与速度相关的关键配置：
 
-```
-用户输入 → 生成回复 → 提取本轮关键信息
-    ↓
-调用LLM更新记忆中枢：
-- 首轮：生成初始记忆
-- 后续：融合新旧信息，删除过时内容
-    ↓
-下一轮只传入：[system] + [记忆摘要] + [新问题]
-```
-
-### 启用/禁用
-
-**启用（默认）：**
 ```env
-HISTORY_COMPRESSION_ENABLED=true
+CRISIS_LLM_DETECTION_ENABLED=true
+CRISIS_LLM_STREAM_BLOCKING_ENABLED=false
+POST_STREAM_ANALYSIS_WAIT_SECONDS=0.2
 ```
 
-**禁用（使用完整历史）：**
-```env
-HISTORY_COMPRESSION_ENABLED=false
+如果把 `CRISIS_LLM_STREAM_BLOCKING_ENABLED` 改成 `true`，每次回复前都会等待危机语义判断，速度会明显变慢。
+
+## CBT 判断策略
+
+默认 CLI 和 API 流式链路不再在首 token 前做“CBT 关键词/规则分析”，因此不会因为“总是、从来、不怕死”这类词被规则误判后强行插入 CBT 指令。主回复模型会在同一次回复生成里直接理解用户原话：如果用户表达焦虑、低落、绝望、愧疚、愤怒、灾难化或全或无思维，就自然融入一个很小的 CBT 方向引导；如果只是闲聊或事实问题，则正常回答。
+
+后台统一语义分析仍会并行输出情绪、认知扭曲、困扰程度、推荐技术和危机分数，用于 `last_result`、API 元数据、推荐问题和后续轮次。旧的 `cbt_module` 规则分析函数仍保留在模块内作为独立模块/测试/手动降级能力，但不是 `python Code\main.py` 和 `/v1/psych/chat` 默认流式主回复的触发依据。
+
+## API 调用示例
+
+`/v1/psych/chat` 返回 `text/event-stream`，事件包括 `start`、多个 `delta`、最终 `done`，异常时返回 `error`。
+
+```json
+{
+  "sessionId": "session-001",
+  "patientContext": {
+    "patientId": "p-001",
+    "stage": "PRETREATMENT",
+    "psychEnergy": 55
+  },
+  "history": [
+    {"role": "user", "content": "昨天很难受"},
+    {"role": "assistant", "content": "我听见你昨天真的很辛苦。"}
+  ],
+  "message": "今天感觉好一点了，但还是有点害怕"
+}
 ```
 
-## ⚠️ 注意事项
+最终 `done` 数据结构：
 
-### 使用前准备
-1. ✅ 确保 `config.env` 中的 `API_KEY` 已正确设置
-2. ✅ 当前配置使用 DeepSeek API，如需更换请修改 `API_BASE_URL` 和 `MODEL_NAME`
-3. ✅ 系统会自动保存对话历史、能量进度和危机记录到JSON文件
-4. ✅ 建议使用虚拟环境，避免依赖冲突
+```json
+{
+  "reply": "模型最终回复文本",
+  "energyAssessment": {
+    "cognitiveGrowth": 0,
+    "emotionRegulation": 0,
+    "behaviorChange": 0,
+    "socialConnection": 0,
+    "selfEfficacy": 0,
+    "totalDelta": 0,
+    "hopeTreeExpDelta": 0,
+    "assessmentNote": "本轮对话获得 0 点心理能量"
+  },
+  "crisisAssessment": {
+    "crisisAlert": false,
+    "crisisLevel": "none",
+    "crisisKeywords": [],
+    "emotionSignals": [],
+    "action": "none",
+    "mindfulnessGuide": null
+  },
+  "recommendedQuestions": [],
+  "agentMeta": {
+    "model": "deepseek-chat",
+    "tokensUsed": 0,
+    "latencyMs": 1200,
+    "firstDeltaMs": 300,
+    "streamMode": "model_first_background_analysis"
+  }
+}
+```
 
-## 📊 数据持久化
+## 主要配置
 
-系统会自动保存以下数据到JSON文件：
+| 配置项 | 默认值 | 说明 |
+|---|---:|---|
+| `API_BASE_URL` | `https://api.deepseek.com` | OpenAI 兼容接口地址 |
+| `API_KEY` | 空 | 模型调用密钥，运行前必须填写 |
+| `MODEL_NAME` | `deepseek-chat` | 主回复模型 |
+| `DATA_DIR` | `data` | 持久化数据目录，相对路径会按项目根目录解析 |
+| `TEMPERATURE` | `0.7` | 主回复随机性 |
+| `MAX_TOKENS` | `1000` | 主回复最大 token |
+| `CBT_ENABLED` | `true` | 是否启用 CBT 能力 |
+| `AUTO_CBT_INTERVENTION` | `true` | 是否允许已有结构化 CBT 分析的路径合入 CBT 微引导；默认流式主回复由实时提示词做语义自决策 |
+| `CBT_LLM_ENABLED` | `true` | 后台统一分析/独立 CBT 分析是否优先使用 LLM |
+| `CBT_INTERVENTION_SEVERITY_THRESHOLD` | `6` | 非流式或已有结构化分析路径中，情绪强度达到该值时追加 CBT 引导；默认流式首轮不靠该规则触发 |
+| `CBT_DISTORTION_TRIGGER_ENABLED` | `true` | 非流式或已有结构化分析路径中，有认知扭曲时是否允许触发 CBT 引导；默认流式首轮不靠该规则触发 |
+| `CRISIS_DETECTION_ENABLED` | `true` | 是否启用危机判断 |
+| `CRISIS_ALERT_THRESHOLD` | `10` | 语义危机分数达到该阈值才报警 |
+| `CRISIS_LLM_DETECTION_ENABLED` | `true` | 是否启用危机 LLM 语义判断 |
+| `CRISIS_LLM_STREAM_BLOCKING_ENABLED` | `false` | 是否在流式回复前阻塞等待危机判断 |
+| `TRANSPLANT_SUPPORT_ENABLED` | `true` | 是否启用移植分期支持 |
+| `TRANSPLANT_LLM_SCENARIO_ENABLED` | `true` | 情境识别是否优先使用 LLM |
+| `LLM_DETECTION_MODEL` | `deepseek-chat` | 后台综合分析、独立 CBT/危机/移植判断使用的模型 |
+| `LLM_DETECTION_TEMPERATURE` | `0.4` | 结构化判断类调用的温度 |
+| `LLM_DETECTION_MAX_TOKENS` | `256` | 独立结构化判断类调用的最大 token；后台综合分析当前代码固定为 512 |
+| `ENERGY_MODEL_ENABLED` | `true` | 当前仅作为配置项存在，主流程尚未用它跳过能量评估 |
+| `ENERGY_FEEDBACK_ENABLED` | `true` | CLI 是否展示能量反馈；API 仍会返回 `energyAssessment` 字段 |
+| `AUTO_SAVE_PROGRESS` | `true` | CLI/API 是否在对话后自动保存历史、状态、能量和危机记录 |
+| `HISTORY_COMPRESSION_ENABLED` | `true` | 是否启用记忆中枢摘要 |
+| `INCREMENTAL_SUMMARY_MAX_WORDS` | `300` | 记忆摘要最大字数 |
+| `POST_STREAM_ANALYSIS_WAIT_SECONDS` | `0.2` | 流式输出后等待后台语义结果的时间 |
 
-- `chat_history.json` - 完整对话历史
-- `user_state.json` - 用户状态（移植分期等）
-- `energy_progress.json` - 心理能量进度
-- `crisis_history.json` - 危机事件历史
+## 提示词与用途
 
-所有文件保存在 `Code/` 目录下。
+| 位置 | 提示词/模板 | 用途 |
+|---|---|---|
+| `Config.SYSTEM_PROMPT` | 主对话系统提示 | 运行时优先读取 `config.env` 中的 `SYSTEM_PROMPT`；当前开发配置为通用 CBT 心理健康助手提示，若删除该配置才使用 `Code/config.py` 中的小芽/骨髓移植患者陪伴默认提示 |
+| `simple_agent._create_response_stream()` | 实时回复要求提示词 | 控制流式主回复的长度、语气、安全边界，并要求模型直接按用户原话语义决定是否融入轻量 CBT，不依赖本地关键词标签 |
+| `simple_agent._llm_unified_analyze()` | 综合分析助手提示词 | 一次 LLM 调用同时输出 CBT 分析、危机语义分数、移植情境识别 |
+| `crisis_module._llm_detect_crisis()` | 危机评估助手提示词 | 判断是否存在心理危机、危机类型、严重分和原因 |
+| `cbt_module._llm_analyze_user_input()` | CBT 分析助手提示词 | 提取主要情绪、认知扭曲、问题严重度和推荐 CBT 技术 |
+| `cbt_module._llm_generate_cbt_guidance()` | CBT 引导生成提示词 | 根据用户原话和 CBT 分析，生成 50-150 字口语化引导 |
+| `cbt_module.technique_prompts` | CBT 技术模板 | 模型不可用或无需生成时的本地模板，包括认知重构、行为激活、问题解决、放松训练、正念、思维记录 |
+| `transplant_support._llm_choose_intervention()` | 移植情境分期助手提示词 | 判断当前分期、是否触发预设引导、触发哪个场景 |
+| `transplant_support.TEMPLATES` | 分期心理引导语库 | 直接输出或拼接到上下文的移植场景陪伴话术 |
+| `simple_agent._update_memory_core()` | 记忆中枢管理器提示词 | 将本轮对话和分析结果融合进长期摘要 |
+| `api_server.generate_recommended_questions()` | 推荐问题规则模板 | 根据情绪、危机、心理能量和移植阶段生成后端推荐提问 |
 
----
+## 数据持久化
 
-**小芽** - 陪伴骨髓移植患者的AI心理伙伴 🌱
+默认数据目录为项目根目录下的 `data/`：
+
+```text
+data/
+├─ chat_history.json
+├─ user_state.json
+├─ energy_progress.json
+├─ crisis_history.json
+└─ sessions/
+   └─ <sessionId>/
+      ├─ chat_history.json
+      ├─ user_state.json
+      ├─ energy_progress.json
+      └─ crisis_history.json
+```
+
+命令行默认使用 `data/`。API 会为每个 `sessionId` 创建独立子目录，避免不同患者或不同会话互相污染。
+
+## RAG 状态
+
+当前项目没有完整 RAG。代码不会把 `File/` 目录中的文档切分、向量化、检索后注入模型上下文。现在使用的是：
+
+- 固定系统提示词；
+- 本地关键词/标签库；
+- 骨髓移植分期模板；
+- 记忆中枢摘要；
+- LLM 语义分析。
+
+如果后续要加入 RAG，建议先对 `File/` 中的医学宣教、心理引导语和护理逻辑资料做切分、向量索引，再在 `stream_chat()` 构造消息时注入少量高相关片段。
+
+## 测试
+
+运行综合测试：
+
+```powershell
+python -B -m py_compile Code\main.py Code\api_server.py Code\simple_agent.py Code\crisis_module.py Code\energy_model.py Code\config.py Code\response_formatting.py
+python -B Code\test_agent.py
+```
+
+测试覆盖重点：
+
+- CLI/API 流程一致性；
+- 流式回复不会因心理危机语义判断明显阻塞；
+- 危机后台语义结果可更新 `last_result`；
+- CBT 分析、推荐技术和模板引导；
+- 移植分期场景识别；
+- 心理能量评估和持久化；
+- 会话数据隔离。
+
+## 开发注意事项
+
+- `config.env` 可用于本地开发，但正式环境不要提交真实密钥。
+- `data/`、`Code/*.json`、`__pycache__/` 等运行产物不应作为代码变更提交。
+- 当前 API 是 SSE 流式接口，前端或后端调用方需要按事件流解析。
+- `POST_STREAM_ANALYSIS_WAIT_SECONDS` 只影响 `done` 前等待后台语义结果的时间，不影响首 token 速度。
+- 若对危机判断要求“强实时报警”，可以开启 `CRISIS_LLM_STREAM_BLOCKING_ENABLED=true`，但要接受明显变慢的代价。
