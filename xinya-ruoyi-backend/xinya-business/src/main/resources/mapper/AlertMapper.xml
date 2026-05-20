@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.xinya.business.alerts.mapper.AlertMapper">
+
+    <select id="pageAlerts" resultType="com.xinya.business.alerts.entity.Alert">
+        SELECT * FROM alerts
+        <where>
+            <if test="patientId != null and patientId != ''">
+                AND patient_id = #{patientId}
+            </if>
+            <if test="resolved != null">
+                AND resolved = #{resolved}
+            </if>
+        </where>
+        ORDER BY created_at DESC
+    </select>
+
+    <select id="findByFilters" resultType="com.xinya.business.alerts.entity.Alert">
+        SELECT * FROM alerts
+        <where>
+            <if test="resolved != null">
+                AND resolved = #{resolved}
+            </if>
+            <if test="level != null and level != ''">
+                AND level = #{level}
+            </if>
+            <if test="patientId != null and patientId != ''">
+                AND patient_id = #{patientId}
+            </if>
+        </where>
+        ORDER BY created_at DESC
+    </select>
+
+</mapper>
