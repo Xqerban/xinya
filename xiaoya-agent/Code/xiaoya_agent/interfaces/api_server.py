@@ -29,10 +29,23 @@ from xiaoya_agent.runtime.session import (
     read_session_metadata,
     rename_session,
     sanitize_user_id,
+    session_storage_reference,
     update_session_after_chat,
+    user_storage_reference,
     write_session_metadata,
 )
+from xiaoya_agent.database import database_storage_enabled
 from xiaoya_agent.runtime.state_store import save_session_state
+from xiaoya_agent.features.cohort_learning import (
+    get_cohort_learning_model,
+    rebuild_cohort_learning_model,
+)
+from xiaoya_agent.features.harbor import (
+    build_harbor_conversation_data,
+    build_harbor_energy_payload,
+    create_harbor_practice,
+    list_harbor_catalog,
+)
 from xiaoya_agent.domain.transplant import TransplantPhase
 from xiaoya_agent.features.crisis import build_crisis_alarm
 from xiaoya_agent.integrations.dify import (
@@ -274,8 +287,9 @@ def _session_state_payload(session) -> Dict[str, Any]:
         "userId": session.user_id,
         "safeUserId": sanitize_user_id(session.user_id),
         "threadId": session.thread_id,
-        "dataDir": session.data_dir,
-        "psychModelDir": session.psych_model_dir,
+        "storageBackend": "mysql" if database_storage_enabled() else "json",
+        "dataDir": session_storage_reference(session.session_id) if database_storage_enabled() else session.data_dir,
+        "psychModelDir": user_storage_reference(session.user_id) if database_storage_enabled() else session.psych_model_dir,
         "phase": phase.value,
         "stage": _stage_from_phase(phase),
         "userState": _json_safe(getattr(agent, "user_state", {}) or {}),
@@ -743,6 +757,65 @@ def _normalize_dify_session_request(data: Dict[str, Any]) -> Dict[str, str]:
     return {"sessionId": str(session_id), "userId": str(user_id)}
 
 
+def _extract_harbor_params(data: Dict[str, Any]) -> Dict[str, Any]:
+    """从普通 API 或 Dify inputs 中提取心之港湾参数。"""
+    data = data or {}
+    inputs = _dict_or_empty(data.get("inputs"))
+    patient_context = _dict_or_empty(data.get("patientContext"))
+    return {
+        "query": _first_non_empty(
+            data.get("query"),
+            data.get("message"),
+            inputs.get("query"),
+            inputs.get("message"),
+            patient_context.get("message"),
+            "",
+        ),
+        "scenario": _first_non_empty(
+            data.get("scenario"),
+            data.get("scene"),
+            inputs.get("scenario"),
+            inputs.get("scene"),
+            patient_context.get("scenario"),
+            patient_context.get("scene"),
+            "",
+        ),
+        "tool_type": _first_non_empty(
+            data.get("toolType"),
+            data.get("tool_type"),
+            data.get("type"),
+            inputs.get("toolType"),
+            inputs.get("tool_type"),
+            inputs.get("type"),
+            "",
+        ),
+        "duration_seconds": _first_non_empty(
+            data.get("durationSeconds"),
+            data.get("duration_seconds"),
+            data.get("duration"),
+            inputs.get("durationSeconds"),
+            inputs.get("duration_seconds"),
+            inputs.get("duration"),
+            None,
+        ),
+        "mode": _first_non_empty(
+            data.get("mode"),
+            inputs.get("mode"),
+            "voice",
+        ),
+    }
+
+
+def _record_harbor_practice(agent, practice: Dict[str, Any], message: str = "") -> Optional[Dict[str, Any]]:
+    """把一次心之港湾练习记录到心理能量模型。"""
+    if not getattr(Config, "ENERGY_MODEL_ENABLED", True):
+        return None
+    return agent.energy_model.apply_llm_assessment(
+        build_harbor_conversation_data(practice, message=message),
+        build_harbor_energy_payload(practice),
+    )
+
+
 def _run_blocking_chat_turn(data: Dict[str, Any], source: str = "api") -> Dict[str, Any]:
     session_id = data.get("sessionId")
     patient_context = _dict_or_empty(data.get("patientContext"))
@@ -1006,6 +1079,9 @@ def dify_options():
             "inputs.extraInstructions",
             "inputs.responseStyle",
             "inputs.workflowContext",
+            "inputs.scenario",
+            "inputs.toolType",
+            "inputs.durationSeconds",
         ],
         "difyOutputFields": [
             "answer",
@@ -1020,7 +1096,10 @@ def dify_options():
             "sessionTitle",
             "retrievalBackend",
             "knowledgeMatchCount",
+            "harbor.practice",
+            "harbor.guideText",
         ],
+        "harbor": _json_safe(list_harbor_catalog()),
     }), 200
 
 
@@ -1098,6 +1177,58 @@ def dify_grounding():
         return jsonify({"error": "internal_error", "message": USER_FACING_ERROR_MESSAGE}), 500
 
 
+@app.route('/v1/dify/harbor', methods=['POST'])
+def dify_harbor():
+    try:
+        data = _json_body()
+        identity = _normalize_dify_session_request(data)
+        params = _extract_harbor_params(data)
+        session = get_or_create_session(identity["sessionId"], user_id=identity["userId"])
+        with session.lock:
+            practice = create_harbor_practice(**params)
+            output = {
+                "practice": practice,
+                "guideText": practice.get("voiceGuideText"),
+                "displayText": practice.get("displayText"),
+                "title": practice.get("title"),
+                "scenario": (practice.get("scenario") or {}).get("name"),
+                "toolType": (practice.get("toolType") or {}).get("name"),
+                "durationSeconds": practice.get("durationSeconds"),
+                "nextAction": "show_harbor_practice",
+                "sessionId": session.session_id,
+                "userId": session.user_id,
+                "threadId": session.thread_id,
+            }
+        return jsonify({"difyOutputs": _json_safe(output)}), 200
+    except ValueError as exc:
+        return jsonify({"error": "invalid_request", "message": str(exc)}), 400
+    except Exception:
+        logger.exception("处理 Dify 心之港湾请求时发生错误")
+        return jsonify({"error": "internal_error", "message": USER_FACING_ERROR_MESSAGE}), 500
+
+
+@app.route('/v1/harbor/catalog', methods=['GET'])
+def harbor_catalog():
+    return jsonify({"catalog": _json_safe(list_harbor_catalog())}), 200
+
+
+@app.route('/v1/harbor/start', methods=['POST'])
+def harbor_start():
+    try:
+        data = _json_body()
+        params = _extract_harbor_params(data)
+        practice = create_harbor_practice(**params)
+        return jsonify({
+            "practice": _json_safe(practice),
+            "recorded": False,
+        }), 200
+    except ValueError as exc:
+        return jsonify({"error": "invalid_request", "message": str(exc)}), 400
+    except Exception:
+        logger.exception("心之港湾启动接口失败")
+        return jsonify({"error": "internal_error", "message": USER_FACING_ERROR_MESSAGE}), 500
+
+
 @app.route('/v1/psych/recommendations', methods=['POST'])
 def psych_recommendations():
     try:
@@ -1137,7 +1268,8 @@ def psych_analyze():
                 "sessionId": session.session_id,
                 "userId": session.user_id,
                 "threadId": session.thread_id,
-                "psychModelDir": session.psych_model_dir,
+                "storageBackend": "mysql" if database_storage_enabled() else "json",
+                "psychModelDir": user_storage_reference(session.user_id) if database_storage_enabled() else session.psych_model_dir,
                 "stage": _stage_from_phase(phase),
                 "promptProfile": runtime.profile,
                 "outputMode": runtime.output_mode,
@@ -1723,6 +1855,49 @@ def session_grounding(session_id: str):
         return jsonify({"error": "internal_error", "message": USER_FACING_ERROR_MESSAGE}), 500
 
 
+@app.route('/v1/sessions/<path:session_id>/harbor', methods=['GET', 'POST'])
+def session_harbor(session_id: str):
+    try:
+        session = _get_existing_session(session_id)
+        if not session:
+            return jsonify({"error": "not_found", "message": "会话不存在"}), 404
+        with session.lock:
+            if request.method == "GET":
+                return jsonify({
+                    "sessionId": session_id,
+                    "catalog": _json_safe(list_harbor_catalog()),
+                }), 200
+
+            data = _json_body()
+            params = _extract_harbor_params(data)
+            practice = create_harbor_practice(**params)
+            record_raw = data.get("record", True)
+            should_record = record_raw if isinstance(record_raw, bool) else str(record_raw).lower() not in {"false", "0", "no"}
+            energy_assessment = None
+            if should_record:
+                energy_assessment = _record_harbor_practice(
+                    session.agent,
+                    practice,
+                    message=params.get("query") or data.get("message") or "",
+                )
+                if Config.AUTO_SAVE_PROGRESS:
+                    session.agent.energy_model.save_progress()
+                _persist_session_state(session)
+
+            return jsonify({
+                "sessionId": session_id,
+                "practice": _json_safe(practice),
+                "recorded": should_record,
+                "energyAssessment": _json_safe(energy_assessment),
+                "energyReport": _json_safe(session.agent.energy_model.get_energy_report()),
+            }), 200
+    except ValueError as exc:
+        return jsonify({"error": "invalid_request", "message": str(exc)}), 400
+    except Exception:
+        logger.exception("心之港湾接口失败")
+        return jsonify({"error": "internal_error", "message": USER_FACING_ERROR_MESSAGE}), 500
+
+
 @app.route('/v1/sessions/<path:session_id>/save', methods=['POST'])
 def session_save(session_id: str):
     try:
@@ -1869,6 +2044,34 @@ def user_delete(user_id: str):
         return jsonify({"error": "internal_error", "message": USER_FACING_ERROR_MESSAGE}), 500
 
 
+@app.route('/v1/cohort-learning', methods=['GET'])
+def cohort_learning_status():
+    try:
+        refresh = request.args.get("refresh", "false").lower() == "true"
+        model = get_cohort_learning_model(refresh_if_stale=refresh)
+        return jsonify({
+            "enabled": bool(getattr(Config, "COHORT_LEARNING_ENABLED", True)),
+            "contextEnabled": bool(getattr(Config, "COHORT_LEARNING_CONTEXT_ENABLED", True)),
+            "cohortLearning": _json_safe(model),
+        }), 200
+    except Exception:
+        logger.exception("读取群体学习模型失败")
+        return jsonify({"error": "internal_error", "message": USER_FACING_ERROR_MESSAGE}), 500
+
+
+@app.route('/v1/cohort-learning/rebuild', methods=['POST'])
+def cohort_learning_rebuild():
+    try:
+        model = rebuild_cohort_learning_model(force=True)
+        return jsonify({
+            "rebuilt": True,
+            "cohortLearning": _json_safe(model),
+        }), 200
+    except Exception:
+        logger.exception("重建群体学习模型失败")
+        return jsonify({"error": "internal_error", "message": USER_FACING_ERROR_MESSAGE}), 500
+
+
 @app.route('/v1/capabilities', methods=['GET'])
 def capabilities():
     return jsonify({
@@ -1881,6 +2084,9 @@ def capabilities():
             "POST /v1/dify/recommendations",
             "POST /v1/dify/context",
             "POST /v1/dify/grounding",
+            "POST /v1/dify/harbor",
+            "GET /v1/harbor/catalog",
+            "POST /v1/harbor/start",
             "GET /v1/mcp/services",
             "GET|POST /v1/mcp/invoke",
             "POST /v1/psych/recommendations",
@@ -1899,7 +2105,14 @@ def capabilities():
             "POST /v1/dify/recommendations",
             "POST /v1/dify/context",
             "POST /v1/dify/grounding",
+            "POST /v1/dify/harbor",
             "Import docs/dify_openapi.yaml as a Dify custom tool schema",
+        ],
+        "harbor": [
+            "GET /v1/harbor/catalog",
+            "POST /v1/harbor/start",
+            "GET|POST /v1/sessions/{sessionId}/harbor",
+            "POST /v1/dify/harbor",
         ],
         "rag": [
             "GET|POST /v1/knowledge/search",
@@ -1918,6 +2131,7 @@ def capabilities():
             "GET /v1/sessions/{sessionId}/progress",
             "GET /v1/sessions/{sessionId}/crisis-report",
             "GET|POST /v1/sessions/{sessionId}/grounding",
+            "GET|POST /v1/sessions/{sessionId}/harbor",
             "POST /v1/sessions/{sessionId}/save",
             "POST /v1/sessions/{sessionId}/reset",
         ],
@@ -1927,6 +2141,10 @@ def capabilities():
             "GET /v1/users/{userId}/psych-model",
             "GET /v1/users/{userId}/conversations",
             "GET /v1/users/{userId}/history",
+        ],
+        "cohortLearning": [
+            "GET /v1/cohort-learning",
+            "POST /v1/cohort-learning/rebuild",
         ],
         "prompts": [
             "GET /v1/prompts",
@@ -1980,6 +2198,9 @@ def main():
     print("   POST /v1/dify/recommendations - Dify 推荐问题输出")
     print("   POST /v1/dify/context - Dify 会话上下文")
     print("   POST /v1/dify/grounding - Dify 接地练习输出")
+    print("   POST /v1/dify/harbor - Dify 心之港湾练习输出")
+    print("   GET  /v1/harbor/catalog - 心之港湾工具目录")
+    print("   POST /v1/harbor/start - 启动心之港湾练习")
     print("   POST /v1/psych/recommendations - 推荐提问")
     print("   POST /v1/psych/analyze - 结构化语义分析")
     print("   GET  /v1/knowledge/search - RAG 检索调试")

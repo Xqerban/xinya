@@ -20,6 +20,19 @@ class Config:
     MODEL_NAME = os.getenv('MODEL_NAME', 'deepseek-chat')
     _DATA_DIR = os.getenv('DATA_DIR', str(PROJECT_ROOT / 'data'))
     DATA_DIR = str(Path(_DATA_DIR) if Path(_DATA_DIR).is_absolute() else PROJECT_ROOT / _DATA_DIR)
+    STORAGE_BACKEND = os.getenv('STORAGE_BACKEND', 'json').lower()
+    DATABASE_URL = os.getenv('DATABASE_URL', '')
+    DATABASE_TABLE_PREFIX = os.getenv('DATABASE_TABLE_PREFIX', 'xiaoya_')
+    DATABASE_AUTO_INIT = os.getenv('DATABASE_AUTO_INIT', 'true').lower() == 'true'
+    MYSQL_HOST = os.getenv('MYSQL_HOST', '127.0.0.1')
+    MYSQL_PORT = int(os.getenv('MYSQL_PORT', '3306'))
+    MYSQL_USER = os.getenv('MYSQL_USER', 'root')
+    MYSQL_PASSWORD = os.getenv('MYSQL_PASSWORD', '')
+    MYSQL_DATABASE = os.getenv('MYSQL_DATABASE', '')
+    MYSQL_CHARSET = os.getenv('MYSQL_CHARSET', 'utf8mb4')
+    MYSQL_CONNECT_TIMEOUT = int(os.getenv('MYSQL_CONNECT_TIMEOUT', '5'))
+    MYSQL_READ_TIMEOUT = int(os.getenv('MYSQL_READ_TIMEOUT', '10'))
+    MYSQL_WRITE_TIMEOUT = int(os.getenv('MYSQL_WRITE_TIMEOUT', '10'))
 
     # 对话配置
     TEMPERATURE = float(os.getenv('TEMPERATURE', '0.7'))
@@ -35,6 +48,16 @@ class Config:
     RESPONSE_MAX_TOKENS_CBT = int(os.getenv('RESPONSE_MAX_TOKENS_CBT', '280'))
     PROMPT_PROFILE = os.getenv('PROMPT_PROFILE', 'warm_cbt')
     OUTPUT_MODE = os.getenv('OUTPUT_MODE', 'brief_support')
+
+    # 跨用户匿名群体学习：只聚合用户心理模型中的结构化字段，
+    # 不读取或注入单个用户的完整对话原文。
+    COHORT_LEARNING_ENABLED = os.getenv('COHORT_LEARNING_ENABLED', 'true').lower() == 'true'
+    COHORT_LEARNING_CONTEXT_ENABLED = os.getenv('COHORT_LEARNING_CONTEXT_ENABLED', 'true').lower() == 'true'
+    COHORT_LEARNING_MIN_USERS = int(os.getenv('COHORT_LEARNING_MIN_USERS', '2'))
+    COHORT_LEARNING_MIN_SIGNAL_USERS = int(os.getenv('COHORT_LEARNING_MIN_SIGNAL_USERS', '2'))
+    COHORT_LEARNING_MAX_CONTEXT_ITEMS = int(os.getenv('COHORT_LEARNING_MAX_CONTEXT_ITEMS', '4'))
+    COHORT_LEARNING_MAX_USERS = int(os.getenv('COHORT_LEARNING_MAX_USERS', '500'))
+    COHORT_LEARNING_REFRESH_SECONDS = int(os.getenv('COHORT_LEARNING_REFRESH_SECONDS', '300'))
 
     # MCP 风格确定性服务：提供当前时间等实时事实上下文，
     # 避免聊天模型依靠猜测回答。

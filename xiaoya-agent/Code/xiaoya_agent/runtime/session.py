@@ -1,8 +1,8 @@
 """API 会话运行时管理。
 
 这一层把 sessionId、thread_id、患者阶段、历史重建和提示词配置集中管理。
-现阶段仍复用 EnhancedChatAgent 的本地 JSON 持久化；thread_id 先与 LangGraph
-调用对齐，后续接 checkpointer/store 时不需要再改 API 入口。
+MySQL 模式下用户历史、会话快照和长期模型都通过仓储层入库；thread_id 先与
+LangGraph 调用对齐，后续接 checkpointer/store 时不需要再改 API 入口。
 """
 import os
 import json
@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional
 
 from xiaoya_agent.config import Config
 from xiaoya_agent.core.agent import EnhancedChatAgent
+from xiaoya_agent.database import database_storage_enabled, get_database_repository
 from xiaoya_agent.domain.transplant import TransplantPhase
 from xiaoya_agent.runtime.state_store import (
     apply_session_state,
@@ -52,6 +53,10 @@ def _now_iso() -> str:
     return datetime.now().replace(microsecond=0).isoformat()
 
 
+def _db_repo():
+    return get_database_repository()
+
+
 def sanitize_session_id(session_id: str) -> str:
     safe_session_id = re.sub(r"[^0-9A-Za-z_.-]+", "_", str(session_id)).strip("._")[:80]
     return safe_session_id or "default"
@@ -69,9 +74,30 @@ def _user_key(user_id: str) -> str:
     return sanitize_user_id(user_id)
 
 
+def _database_table_name(name: str) -> str:
+    prefix = re.sub(r"[^0-9A-Za-z_]+", "_", str(getattr(Config, "DATABASE_TABLE_PREFIX", "xiaoya_") or "xiaoya_")).strip("_")
+    if not prefix:
+        prefix = "xiaoya"
+    if prefix[0].isdigit():
+        prefix = f"_{prefix}"
+    if not prefix.endswith("_"):
+        prefix += "_"
+    cleaned_name = re.sub(r"[^0-9A-Za-z_]+", "_", str(name or "")).strip("_") or "data"
+    return f"{prefix}{cleaned_name}"
+
+
+def user_storage_reference(user_id: str) -> str:
+    return f"mysql:{_database_table_name('users')}/{sanitize_user_id(user_id)}"
+
+
+def session_storage_reference(session_id: str) -> str:
+    return f"mysql:{_database_table_name('sessions')}/{sanitize_session_id(session_id)}"
+
+
 def _users_root() -> str:
     root = os.path.abspath(os.path.join(Config.DATA_DIR, "users"))
-    os.makedirs(root, exist_ok=True)
+    if not database_storage_enabled():
+        os.makedirs(root, exist_ok=True)
     return root
 
 
@@ -108,15 +134,33 @@ def _assert_user_model_owner(user_id: str, model_dir: str) -> None:
 
 def get_user_model_dir(user_id: str) -> str:
     model_dir = os.path.abspath(os.path.join(_users_root(), _user_key(user_id)))
-    if os.path.isdir(model_dir):
-        _assert_user_model_owner(user_id, model_dir)
-    os.makedirs(model_dir, exist_ok=True)
-    _write_user_model_metadata(user_id, model_dir)
+    if database_storage_enabled():
+        _db_repo().upsert_user(
+            user_id=str(user_id),
+            safe_user_id=sanitize_user_id(user_id),
+            metadata={
+                "userId": str(user_id),
+                "safeUserId": sanitize_user_id(user_id),
+                "updatedAt": _now_iso(),
+                "psychModelDir": user_storage_reference(user_id),
+                "storageBackend": "mysql",
+            },
+            psych_model_dir=user_storage_reference(user_id),
+        )
+    else:
+        if os.path.isdir(model_dir):
+            _assert_user_model_owner(user_id, model_dir)
+        os.makedirs(model_dir, exist_ok=True)
+        _write_user_model_metadata(user_id, model_dir)
     return model_dir
 
 
 def get_user_model_dir_if_exists(user_id: str) -> Optional[str]:
     model_dir = os.path.abspath(os.path.join(_users_root(), _user_key(user_id)))
+    if database_storage_enabled():
+        record = _db_repo().load_user_record(user_id)
+        if record:
+            return str(record.get("psychModelDir") or user_storage_reference(user_id))
     if os.path.isdir(model_dir):
         _assert_user_model_owner(user_id, model_dir)
         return model_dir
@@ -124,6 +168,22 @@ def get_user_model_dir_if_exists(user_id: str) -> Optional[str]:
 
 
 def read_user_psych_model(user_id: str) -> Optional[Dict[str, Any]]:
+    if database_storage_enabled():
+        record = _db_repo().load_user_record(user_id)
+        if not record:
+            return None
+        model = record.get("psychModel") if isinstance(record.get("psychModel"), dict) else {}
+        metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
+        resolved_user_id = str(record.get("userId") or metadata.get("userId") or model.get("userId") or user_id)
+        return {
+            "source": "database_user_model",
+            "userId": resolved_user_id,
+            "safeUserId": str(record.get("safeUserId") or sanitize_user_id(resolved_user_id)),
+            "psychModelDir": record.get("psychModelDir"),
+            "exists": bool(model),
+            "metadata": metadata,
+            "psychModel": model,
+        }
     model_dir = get_user_model_dir_if_exists(user_id)
     if not model_dir:
         return None
@@ -198,7 +258,7 @@ def build_agent_psych_model_payload(
         "source": "active_session",
         "userId": user_id,
         "safeUserId": sanitize_user_id(user_id),
-        "psychModelDir": getattr(agent, "psych_model_dir", None),
+        "psychModelDir": user_storage_reference(user_id) if database_storage_enabled() else getattr(agent, "psych_model_dir", None),
         "psychModel": psych_model,
     }
     if session_id is not None:
@@ -209,6 +269,23 @@ def build_agent_psych_model_payload(
 
 
 def _write_user_model_metadata(user_id: str, model_dir: str) -> Dict[str, Any]:
+    if database_storage_enabled():
+        now = _now_iso()
+        meta = {
+            "userId": user_id,
+            "safeUserId": sanitize_user_id(user_id),
+            "updatedAt": now,
+            "psychModelDir": user_storage_reference(user_id),
+            "storageBackend": "mysql",
+        }
+        record = _db_repo().upsert_user(
+            user_id=str(user_id),
+            safe_user_id=sanitize_user_id(user_id),
+            metadata=meta,
+            psych_model_dir=user_storage_reference(user_id),
+        )
+        stored = record.get("metadata") if isinstance(record, dict) else None
+        return stored if isinstance(stored, dict) else meta
     meta = _read_json_file(_user_model_metadata_path(model_dir), None)
     now = _now_iso()
     if not isinstance(meta, dict):
@@ -233,7 +310,8 @@ def _user_conversation_index_path(model_dir: str) -> str:
 
 def _user_conversations_dir(model_dir: str) -> str:
     path = os.path.join(model_dir, USER_CONVERSATIONS_DIRNAME)
-    os.makedirs(path, exist_ok=True)
+    if not database_storage_enabled():
+        os.makedirs(path, exist_ok=True)
     return path
 
 
@@ -284,6 +362,36 @@ def sync_user_conversation_history(
     resolved_source = str(source or "api")
     resolved_conversation_id = str(conversation_id or resolved_source)
     metadata = dict(metadata or {})
+    if database_storage_enabled():
+        model_dir = get_user_model_dir(resolved_user_id)
+        now = _now_iso()
+        visible_history = [message for message in list(history or []) if message.get("role") != "system"]
+        entry = {
+            "userId": resolved_user_id,
+            "safeUserId": sanitize_user_id(resolved_user_id),
+            "source": resolved_source,
+            "conversationId": resolved_conversation_id,
+            "safeConversationId": sanitize_session_id(resolved_conversation_id),
+            "sessionId": metadata.get("sessionId", resolved_conversation_id if resolved_source == "api" else None),
+            "title": metadata.get("title") or build_auto_session_title(_first_user_message(visible_history)),
+            "createdAt": metadata.get("createdAt") or now,
+            "updatedAt": metadata.get("updatedAt") or now,
+            "lastMessageAt": metadata.get("lastMessageAt"),
+            "messageCount": _message_count(visible_history),
+            "historyCount": len(visible_history),
+            "dataDir": metadata.get("dataDir"),
+            "snapshotPath": None,
+        }
+        return _db_repo().save_conversation_snapshot(
+            user_id=resolved_user_id,
+            safe_user_id=sanitize_user_id(resolved_user_id),
+            conversation_id=resolved_conversation_id,
+            safe_conversation_id=sanitize_session_id(resolved_conversation_id),
+            source=resolved_source,
+            history=list(history or []),
+            metadata=metadata,
+            entry=entry,
+        )
     model_dir = get_user_model_dir(resolved_user_id)
     conversations_dir = _user_conversations_dir(model_dir)
     snapshot_name = _conversation_snapshot_name(resolved_source, resolved_conversation_id)
@@ -335,6 +443,8 @@ def sync_user_conversation_history(
 
 
 def unregister_user_conversation(user_id: str, conversation_id: str, source: str) -> bool:
+    if database_storage_enabled():
+        return _db_repo().remove_conversation(user_id, str(conversation_id or source or "api"), str(source or "api"))
     model_dir = get_user_model_dir_if_exists(user_id)
     if not model_dir:
         return False
@@ -388,6 +498,8 @@ def _scan_api_conversations_for_user(user_id: str) -> List[Dict[str, Any]]:
 
 
 def list_user_conversations(user_id: str, include_history: bool = False, refresh: bool = True) -> Dict[str, Any]:
+    if database_storage_enabled():
+        return _db_repo().load_user_conversations(user_id, include_history=include_history)
     model_dir = get_user_model_dir_if_exists(user_id)
     if not model_dir:
         return {
@@ -416,6 +528,8 @@ def list_user_conversations(user_id: str, include_history: bool = False, refresh
 
 
 def list_user_summaries() -> List[Dict[str, Any]]:
+    if database_storage_enabled():
+        return _db_repo().list_user_records()
     root = _users_root()
     users: List[Dict[str, Any]] = []
     for item in os.scandir(root):
@@ -451,6 +565,8 @@ def _safe_rmtree(path: str, root: str) -> bool:
 
 def get_session_data_dir(session_id: str) -> str:
     data_dir = os.path.abspath(os.path.join(Config.DATA_DIR, "sessions", _session_key(session_id)))
+    if database_storage_enabled():
+        return data_dir
     if os.path.isdir(data_dir):
         _assert_session_owner(session_id, data_dir)
     os.makedirs(data_dir, exist_ok=True)
@@ -459,12 +575,15 @@ def get_session_data_dir(session_id: str) -> str:
 
 def _sessions_root() -> str:
     root = os.path.abspath(os.path.join(Config.DATA_DIR, "sessions"))
-    os.makedirs(root, exist_ok=True)
+    if not database_storage_enabled():
+        os.makedirs(root, exist_ok=True)
     return root
 
 
 def _session_data_dir_if_exists(session_id: str) -> Optional[str]:
     data_dir = os.path.abspath(os.path.join(_sessions_root(), _session_key(session_id)))
+    if database_storage_enabled() and _db_repo().load_session_metadata(session_id):
+        return data_dir
     if os.path.isdir(data_dir):
         _assert_session_owner(session_id, data_dir)
     return data_dir if os.path.isdir(data_dir) else None
@@ -485,6 +604,8 @@ def _read_json_file(path: str, default: Any) -> Any:
 
 
 def _write_json_file(path: str, data: Any) -> None:
+    if database_storage_enabled():
+        return
     os.makedirs(os.path.dirname(path), exist_ok=True)
     temp_path = f"{path}.tmp"
     with open(temp_path, "w", encoding="utf-8") as f:
@@ -500,10 +621,12 @@ def build_auto_session_title(message: str, fallback: str = "新的会话") -> st
     return text[:18] + ("..." if len(text) > 18 else "")
 
 
-def _history_from_data_dir(data_dir: str) -> List[Dict[str, Any]]:
-    state_history = load_session_history(data_dir)
+def _history_from_data_dir(data_dir: str, session_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    state_history = load_session_history(data_dir, session_id=session_id)
     if isinstance(state_history, list):
         return state_history
+    if database_storage_enabled():
+        return []
     history = _read_json_file(os.path.join(data_dir, "chat_history.json"), [])
     return history if isinstance(history, list) else []
 
@@ -531,6 +654,9 @@ def _default_metadata(
     resolved_user_id = str(user_id or session_id)
     safe_user_id = sanitize_user_id(resolved_user_id)
     resolved_psych_model_dir = psych_model_dir or os.path.abspath(os.path.join(Config.DATA_DIR, "users", safe_user_id))
+    storage_backend = "mysql" if database_storage_enabled() else "json"
+    metadata_data_dir = session_storage_reference(session_id) if database_storage_enabled() else data_dir
+    metadata_psych_model_dir = user_storage_reference(resolved_user_id) if database_storage_enabled() else resolved_psych_model_dir
     return {
         "sessionId": session_id,
         "safeSessionId": safe_session_id,
@@ -548,12 +674,18 @@ def _default_metadata(
         "outputMode": Config.OUTPUT_MODE,
         "promptProfileVersion": 1,
         "outputModeVersion": 1,
-        "dataDir": data_dir,
-        "psychModelDir": resolved_psych_model_dir,
+        "storageBackend": storage_backend,
+        "dataDir": metadata_data_dir,
+        "psychModelDir": metadata_psych_model_dir,
     }
 
 
 def read_session_metadata(session_id: str) -> Optional[Dict[str, Any]]:
+    if database_storage_enabled():
+        data = _db_repo().load_session_metadata(session_id)
+        if isinstance(data, dict):
+            return data
+        return None
     data_dir = _session_data_dir_if_exists(session_id)
     if not data_dir:
         return None
@@ -571,6 +703,14 @@ def read_session_metadata(session_id: str) -> Optional[Dict[str, Any]]:
 
 
 def _resolve_session_user_id(session_id: str, requested_user_id: Optional[str] = None) -> str:
+    if database_storage_enabled():
+        existing = _db_repo().load_session_metadata(session_id)
+        existing_user_id = str(existing.get("userId") or "") if isinstance(existing, dict) else ""
+        if existing_user_id:
+            if requested_user_id and str(requested_user_id) != existing_user_id:
+                raise ValueError(f"sessionId={session_id!r} 已绑定 userId={existing_user_id!r}，不能切换到 {requested_user_id!r}")
+            return str(requested_user_id or existing_user_id or session_id)
+        return str(requested_user_id or session_id)
     data_dir = _session_data_dir_if_exists(session_id)
     existing = _read_json_file(_metadata_path(data_dir), None) if data_dir else None
     existing_user_id = str(existing.get("userId") or "") if isinstance(existing, dict) else ""
@@ -604,14 +744,21 @@ def write_session_metadata(
     current["userId"] = resolved_user_id
     current["safeUserId"] = sanitize_user_id(resolved_user_id)
     current["threadId"] = build_thread_id(session_id)
-    current["dataDir"] = data_dir
-    current["psychModelDir"] = psych_model_dir
-    _write_json_file(_metadata_path(data_dir), current)
+    if database_storage_enabled():
+        current["storageBackend"] = "mysql"
+        current["dataDir"] = session_storage_reference(session_id)
+        current["psychModelDir"] = user_storage_reference(resolved_user_id)
+        current = _db_repo().save_session_metadata(current)
+    else:
+        current["storageBackend"] = "json"
+        current["dataDir"] = data_dir
+        current["psychModelDir"] = psych_model_dir
+        _write_json_file(_metadata_path(data_dir), current)
     sync_user_conversation_history(
         user_id=resolved_user_id,
         conversation_id=session_id,
         source="api",
-        history=_history_from_data_dir(data_dir),
+        history=_history_from_data_dir(data_dir, session_id=session_id),
         metadata=current,
     )
     return current
@@ -622,6 +769,8 @@ def create_session_metadata(session_id: str, title: Optional[str] = None, user_i
 
 
 def list_session_summaries() -> List[Dict[str, Any]]:
+    if database_storage_enabled():
+        return _db_repo().list_session_metadata()
     root = _sessions_root()
     summaries: List[Dict[str, Any]] = []
     for item in os.scandir(root):
@@ -652,10 +801,17 @@ def get_session_history(session_id: str, include_system: bool = False) -> Option
                 )
             history = active.agent.get_history()
         else:
+            if database_storage_enabled():
+                history = _db_repo().load_session_history(session_id)
+                if history is None:
+                    return None
+                if include_system:
+                    return history
+                return [message for message in history if message.get("role") != "system"]
             data_dir = _session_data_dir_if_exists(session_id)
             if not data_dir:
                 return None
-            history = _history_from_data_dir(data_dir)
+            history = _history_from_data_dir(data_dir, session_id=session_id)
 
     if include_system:
         return history
@@ -691,6 +847,23 @@ def auto_name_session(session_id: str, message: Optional[str] = None) -> Optiona
 
 
 def delete_session(session_id: str) -> bool:
+    if database_storage_enabled():
+        meta = read_session_metadata(session_id) or {}
+        deleted = _db_repo().delete_session(session_id)
+        data_dir = os.path.abspath(os.path.join(_sessions_root(), _session_key(session_id)))
+        if os.path.isdir(data_dir):
+            root = _sessions_root()
+            if os.path.commonpath([root, data_dir]) == root:
+                shutil.rmtree(data_dir)
+        safe_session_id = _session_key(session_id)
+        with agent_sessions_lock:
+            for key in list(agent_sessions.keys()):
+                if key == safe_session_id or sanitize_session_id(key) == safe_session_id:
+                    agent_sessions.pop(key, None)
+        user_id = meta.get("userId")
+        if user_id:
+            unregister_user_conversation(str(user_id), str(meta.get("sessionId") or session_id), "api")
+        return bool(deleted)
     data_dir = _session_data_dir_if_exists(session_id)
     if not data_dir:
         return False
@@ -715,7 +888,8 @@ def delete_session(session_id: str) -> bool:
 
 def _cli_sessions_root() -> str:
     root = os.path.abspath(os.path.join(Config.DATA_DIR, "cli_sessions"))
-    os.makedirs(root, exist_ok=True)
+    if not database_storage_enabled():
+        os.makedirs(root, exist_ok=True)
     return root
 
 
@@ -768,13 +942,20 @@ def delete_user(user_id: str, delete_sessions: bool = True, delete_cli_sessions:
         except Exception as exc:
             errors.append(f"删除用户心理模型目录失败：{exc}")
 
+    database_user_deleted = False
+    if database_storage_enabled():
+        try:
+            database_user_deleted = _db_repo().delete_user(resolved_user_id)
+        except Exception as exc:
+            errors.append(f"删除数据库用户数据失败：{exc}")
+
     return {
-        "deleted": bool(user_model_deleted or deleted_sessions or deleted_paths),
+        "deleted": bool(user_model_deleted or database_user_deleted or deleted_sessions or deleted_paths),
         "userId": resolved_user_id,
         "safeUserId": safe_user_id,
         "deletedSessions": deleted_sessions,
         "deletedSessionCount": len(deleted_sessions),
-        "deletedUserModel": user_model_deleted,
+        "deletedUserModel": bool(user_model_deleted or database_user_deleted),
         "deletedPaths": deleted_paths,
         "errors": errors,
     }
@@ -817,7 +998,10 @@ def get_or_create_session(session_id: str, user_id: Optional[str] = None) -> Ses
                 user_id=resolved_user_id,
                 psych_model_dir=psych_model_dir,
             )
-            apply_session_state(agent, load_session_state(data_dir), restore_psych_model=False)
+            agent.storage_session_id = session_id
+            agent.storage_source = "api"
+            agent.storage_conversation_id = session_id
+            apply_session_state(agent, load_session_state(data_dir, session_id=session_id), restore_psych_model=False)
             agent.graph_thread_id = thread_id
             session = SessionManager(
                 session_id=session_id,
@@ -955,7 +1139,8 @@ def prepare_session_for_chat(session: SessionManager, data: Dict[str, Any]) -> D
         "userId": session.user_id,
         "safeUserId": sanitize_user_id(session.user_id),
         "threadId": session.thread_id,
-        "psychModelDir": session.psych_model_dir,
+        "psychModelDir": user_storage_reference(session.user_id) if database_storage_enabled() else session.psych_model_dir,
+        "storageBackend": "mysql" if database_storage_enabled() else "json",
         "stage": stage,
         **prompt_meta,
     }

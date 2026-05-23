@@ -7,3 +7,4 @@ flask-cors>=3.0.10
 langchain-core>=0.3.0
 langgraph>=1.0.0
 pydantic>=2.0.0
+PyMySQL>=1.1.0

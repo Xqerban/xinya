@@ -9,7 +9,11 @@ from typing import Any, Dict, Iterator, Optional, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
-from xiaoya_agent.tools.local_tools import build_response_context_from_tool_outputs, invoke_turn_tools
+from xiaoya_agent.tools.local_tools import (
+    build_response_context_from_tool_outputs,
+    invoke_turn_tools,
+    should_use_knowledge_retrieval,
+)
 from xiaoya_agent.config import Config
 
 
@@ -51,11 +55,23 @@ def _prepare_turn(state: XiaoyaTurnState) -> Dict[str, Any]:
             default_phase=current_phase,
         )
     elif model_decides_tools:
-        response_context = {
-            "phase": current_phase,
-            "scenario": None,
-            "template": None,
-        }
+        if should_use_knowledge_retrieval(user_message):
+            local_tool_outputs = invoke_turn_tools(
+                agent=agent,
+                user_message=user_message,
+                current_phase=current_phase,
+                analysis=cbt_analysis,
+            )
+            response_context = build_response_context_from_tool_outputs(
+                local_tool_outputs,
+                default_phase=current_phase,
+            )
+        else:
+            response_context = agent._build_stream_response_context(
+                user_message=user_message,
+                current_phase=current_phase,
+                analysis=cbt_analysis,
+            )
     else:
         response_context = agent._build_stream_response_context(
             user_message=user_message,

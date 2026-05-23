@@ -34,10 +34,17 @@ from xiaoya_agent.domain.transplant import TransplantPhase, Scenario, choose_int
 from xiaoya_agent.features.crisis import CrisisInterventionModule, CrisisType, build_crisis_alarm
 from xiaoya_agent.features.cbt import CBTModule, CBTTechnique
 from xiaoya_agent.features.energy import PsychologicalEnergyModel
+from xiaoya_agent.features.harbor import (
+    create_harbor_practice,
+    list_harbor_catalog,
+    should_use_harbor_regulation,
+)
 from xiaoya_agent.interfaces.cli import (
     build_cli_psych_model_payload,
     create_cli_agent,
+    display_harbor_practice,
     list_cli_users,
+    parse_harbor_command,
     run_chat_turn,
     switch_cli_user,
 )
@@ -60,9 +67,14 @@ from xiaoya_agent.runtime.session import (
     sync_user_conversation_history,
     update_session_after_chat,
 )
+from xiaoya_agent.features.cohort_learning import (
+    get_cohort_learning_context,
+    rebuild_cohort_learning_model,
+)
 from xiaoya_agent.tools.local_tools import (
     build_response_context_from_tool_outputs,
     get_agent_tools,
+    harbor_regulation_tool,
     invoke_turn_tools,
     medical_red_flag_scan,
     should_use_knowledge_retrieval,
@@ -497,6 +509,37 @@ class TestEntrypointFlowParity(unittest.TestCase):
         finally:
             Config.AUTO_SAVE_PROGRESS = old_auto_save
 
+    def test_cli_chat_turn_collapses_model_paragraph_breaks(self):
+        class _FakeCliAgent:
+            def __init__(self):
+                self.last_result = {
+                    "response": "我听到了。\n\n明天手术前会很难受。",
+                    "response_type": "cbt_response",
+                    "crisis_detection": {},
+                    "energy_assessment": None,
+                    "energy_report": None,
+                }
+
+            def stream_chat(self, message):
+                yield "我听到了。\n"
+                yield "\n明天手术前会很难受。"
+
+            def save_all_progress(self):
+                raise AssertionError("auto-save should be disabled for this test")
+
+        old_auto_save = Config.AUTO_SAVE_PROGRESS
+        try:
+            Config.AUTO_SAVE_PROGRESS = False
+            output = io.StringIO()
+            with redirect_stdout(output):
+                run_chat_turn(_FakeCliAgent(), "我不想死")
+
+            text = output.getvalue()
+            self.assertIn("我听到了。 明天手术前会很难受。", text)
+            self.assertNotIn("我听到了。\n\n明天", text)
+        finally:
+            Config.AUTO_SAVE_PROGRESS = old_auto_save
+
     @patch("xiaoya_agent.core.agent.OpenAI", _FakeOpenAI)
     def test_cli_user_switch_uses_independent_psych_models(self):
         old_data_dir = Config.DATA_DIR
@@ -811,6 +854,80 @@ class TestSessionRuntime(unittest.TestCase):
                 Config.HISTORY_COMPRESSION_ENABLED = old_history_compression
 
     @patch("xiaoya_agent.core.agent.OpenAI", _FakeOpenAI)
+    def test_cohort_learning_aggregates_anonymous_user_models(self):
+        old_values = {
+            "DATA_DIR": Config.DATA_DIR,
+            "COHORT_LEARNING_ENABLED": Config.COHORT_LEARNING_ENABLED,
+            "COHORT_LEARNING_CONTEXT_ENABLED": Config.COHORT_LEARNING_CONTEXT_ENABLED,
+            "COHORT_LEARNING_MIN_USERS": Config.COHORT_LEARNING_MIN_USERS,
+            "COHORT_LEARNING_MIN_SIGNAL_USERS": Config.COHORT_LEARNING_MIN_SIGNAL_USERS,
+            "COHORT_LEARNING_REFRESH_SECONDS": Config.COHORT_LEARNING_REFRESH_SECONDS,
+            "HISTORY_COMPRESSION_ENABLED": Config.HISTORY_COMPRESSION_ENABLED,
+        }
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            try:
+                Config.DATA_DIR = tmp_dir
+                Config.COHORT_LEARNING_ENABLED = True
+                Config.COHORT_LEARNING_CONTEXT_ENABLED = True
+                Config.COHORT_LEARNING_MIN_USERS = 2
+                Config.COHORT_LEARNING_MIN_SIGNAL_USERS = 2
+                Config.COHORT_LEARNING_REFRESH_SECONDS = 0
+                Config.HISTORY_COMPRESSION_ENABLED = True
+
+                for user_id, style in [("patient-a", "brief"), ("patient-b", "gentle")]:
+                    user_dir = os.path.join(tmp_dir, "users", user_id)
+                    os.makedirs(user_dir, exist_ok=True)
+                    with open(os.path.join(user_dir, "psych_model_meta.json"), "w", encoding="utf-8") as f:
+                        json.dump({"userId": user_id, "safeUserId": user_id}, f, ensure_ascii=False)
+                    with open(os.path.join(user_dir, "psych_model.json"), "w", encoding="utf-8") as f:
+                        json.dump({
+                            "modelVersion": 1,
+                            "userId": user_id,
+                            "updatedAt": "2026-05-15T10:00:00",
+                            "user_state": {"transplant_phase": "移植后恢复期"},
+                            "personalization_profile": {
+                                "communication_style": style,
+                                "current_main_concerns": ["担心排异"],
+                                "recurring_emotions": {"anxiety": 2},
+                                "cognitive_patterns": ["catastrophizing"],
+                                "effective_strategies": ["短呼吸"],
+                                "support_preferences": ["回复简短"],
+                                "risk_notes": ["夜间焦虑升高"],
+                            },
+                        }, f, ensure_ascii=False)
+
+                model = rebuild_cohort_learning_model(force=True)
+                self.assertTrue(model["eligible"])
+                self.assertEqual(model["userCount"], 2)
+                self.assertEqual(
+                    model["signals"]["commonConcerns"][0]["text"],
+                    "担心排异",
+                )
+                self.assertTrue(model["privacy"]["storesUserIds"] is False)
+
+                context = get_cohort_learning_context("patient-a", force_refresh=True)
+                self.assertIn("骨髓移植患者群体经验", context)
+                self.assertIn("担心排异", context)
+                self.assertNotIn("patient-a", context)
+
+                agent = EnhancedChatAgent(
+                    data_dir=os.path.join(tmp_dir, "sessions", "s1"),
+                    user_id="patient-c",
+                    psych_model_dir=os.path.join(tmp_dir, "users", "patient-c"),
+                    load_persistent_data=False,
+                )
+                prompt_text = "\n".join(
+                    message["content"]
+                    for message in agent._get_messages_for_api("我最近也很担心")
+                    if message["role"] == "system"
+                )
+                self.assertIn("骨髓移植患者群体经验", prompt_text)
+                self.assertIn("担心排异", prompt_text)
+            finally:
+                for key, value in old_values.items():
+                    setattr(Config, key, value)
+
+    @patch("xiaoya_agent.core.agent.OpenAI", _FakeOpenAI)
     def test_update_session_after_chat_records_prompt_versions(self):
         old_data_dir = Config.DATA_DIR
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -1046,6 +1163,29 @@ class TestSessionRuntime(unittest.TestCase):
                 self.assertEqual(recorded_grounding.status_code, 200)
                 self.assertTrue(recorded_grounding.get_json()["recorded"])
 
+                harbor_catalog = client.get("/v1/harbor/catalog")
+                self.assertEqual(harbor_catalog.status_code, 200)
+                self.assertIn("tools", harbor_catalog.get_json()["catalog"])
+
+                harbor_start = client.post("/v1/harbor/start", json={
+                    "scenario": "焦虑",
+                    "toolType": "呼吸",
+                    "durationSeconds": 60,
+                })
+                self.assertEqual(harbor_start.status_code, 200)
+                self.assertFalse(harbor_start.get_json()["recorded"])
+                self.assertEqual(harbor_start.get_json()["practice"]["durationSeconds"], 60)
+
+                session_harbor = client.post("/v1/sessions/api-user/harbor", json={
+                    "scenario": "失眠",
+                    "toolType": "冥想",
+                    "durationSeconds": 120,
+                    "record": True,
+                })
+                self.assertEqual(session_harbor.status_code, 200)
+                self.assertTrue(session_harbor.get_json()["recorded"])
+                self.assertIn("voiceGuideText", session_harbor.get_json()["practice"])
+
                 saved = client.post("/v1/sessions/api-user/save")
                 self.assertEqual(saved.status_code, 200)
                 self.assertTrue(saved.get_json()["saved"])
@@ -1085,10 +1225,12 @@ class TestSessionRuntime(unittest.TestCase):
                 self.assertIn("users", capabilities.get_json())
                 self.assertIn("dify", capabilities.get_json())
                 self.assertIn("mcp", capabilities.get_json())
+                self.assertIn("harbor", capabilities.get_json())
 
                 dify_schema = client.get("/v1/dify/openapi.yaml")
                 self.assertEqual(dify_schema.status_code, 200)
                 self.assertIn("operationId: xiaoyaDifyChat", dify_schema.get_data(as_text=True))
+                self.assertIn("operationId: getXiaoyaDifyHarbor", dify_schema.get_data(as_text=True))
 
                 dify_status = client.get("/v1/dify/status")
                 self.assertEqual(dify_status.status_code, 200)
@@ -1098,6 +1240,7 @@ class TestSessionRuntime(unittest.TestCase):
                 self.assertEqual(dify_options.status_code, 200)
                 self.assertIn("promptProfiles", dify_options.get_json())
                 self.assertIn("question1", dify_options.get_json()["difyOutputFields"])
+                self.assertIn("harbor.guideText", dify_options.get_json()["difyOutputFields"])
 
                 dify_questions = client.post("/v1/dify/recommendations", json={
                     "inputs": {
@@ -1121,6 +1264,19 @@ class TestSessionRuntime(unittest.TestCase):
                 })
                 self.assertEqual(dify_grounding.status_code, 200)
                 self.assertIn("exercise", dify_grounding.get_json()["difyOutputs"])
+
+                dify_harbor = client.post("/v1/dify/harbor", json={
+                    "conversation_id": "dify-conv-test",
+                    "user": "dify-user-test",
+                    "inputs": {
+                        "scenario": "疼痛",
+                        "toolType": "肌肉",
+                        "durationSeconds": 120,
+                    },
+                })
+                self.assertEqual(dify_harbor.status_code, 200)
+                self.assertIn("guideText", dify_harbor.get_json()["difyOutputs"])
+                self.assertEqual(dify_harbor.get_json()["difyOutputs"]["durationSeconds"], 120)
 
                 dify_session = get_or_create_session("dify-conv-test", user_id="dify-user-test")
                 dify_session.agent.client = _FakeStreamingOpenAI(responses=["Dify 集成回复"])
@@ -1379,6 +1535,52 @@ class TestAgentTools(unittest.TestCase):
         self.assertIn("conversation_state_snapshot", names)
         self.assertIn("knowledge_retrieval", names)
         self.assertIn("mcp_service_router", names)
+        self.assertIn("harbor_regulation_tool", names)
+
+    def test_harbor_catalog_and_practice_generation(self):
+        catalog = list_harbor_catalog()
+        self.assertTrue(any(item["key"] == "anxiety" for item in catalog["scenarios"]))
+        self.assertTrue(any(item["key"] == "breathing_regulation" for item in catalog["tools"]))
+        self.assertTrue(should_use_harbor_regulation("我想做一分钟呼吸放松"))
+
+        practice = create_harbor_practice(
+            scenario="焦虑",
+            tool_type="呼吸",
+            duration_seconds=60,
+            query="我现在很焦虑",
+        )
+        self.assertEqual(practice["durationSeconds"], 60)
+        self.assertEqual(practice["scenario"]["key"], "anxiety")
+        self.assertEqual(practice["toolType"]["key"], "breathing_regulation")
+        self.assertTrue(practice["oneClickStart"])
+        self.assertFalse(practice["requiresComplexMovement"])
+        self.assertIn("voiceGuideText", practice)
+
+    def test_harbor_regulation_tool_returns_voice_practice(self):
+        result = harbor_regulation_tool.invoke({
+            "query": "我现在很焦虑，带我做一分钟呼吸",
+            "duration_seconds": 60,
+        })
+        practice = result["practice"]
+        self.assertEqual(practice["durationSeconds"], 60)
+        self.assertEqual(practice["toolType"]["key"], "breathing_regulation")
+        self.assertIn("心之港湾", result["context"])
+
+    def test_cli_harbor_display_handles_short_duration_command(self):
+        params = parse_harbor_command("harbor 5")
+        practice = create_harbor_practice(
+            scenario=params["scenario"],
+            tool_type=params["tool_type"],
+            duration_seconds=params["duration_seconds"],
+            query=params["query"],
+        )
+        output = io.StringIO()
+        with redirect_stdout(output):
+            display_harbor_practice(practice)
+        rendered = output.getvalue()
+        self.assertIn("心之港湾", rendered)
+        self.assertIn("1. (", rendered)
+        self.assertNotIn("None", rendered)
 
     def test_rag_auto_trigger_skips_plain_emotional_support_turns(self):
         old_enabled = Config.RAG_AUTO_TRIGGER_ENABLED
@@ -1565,6 +1767,106 @@ class TestAgentTools(unittest.TestCase):
         finally:
             for key, value in old_values.items():
                 setattr(Config, key, value)
+
+    @patch("xiaoya_agent.core.agent.OpenAI", _FakeStreamingOpenAI)
+    def test_rag_query_prefetches_knowledge_even_when_model_skips_tool_call(self):
+        old_values = {
+            "AGENT_GRAPH_ENABLED": Config.AGENT_GRAPH_ENABLED,
+            "AGENT_TOOLS_ENABLED": Config.AGENT_TOOLS_ENABLED,
+            "AGENT_MODEL_TOOL_CALLING_ENABLED": Config.AGENT_MODEL_TOOL_CALLING_ENABLED,
+            "RAG_ENABLED": Config.RAG_ENABLED,
+            "RAG_BACKEND": Config.RAG_BACKEND,
+            "RAG_TOP_K": Config.RAG_TOP_K,
+            "RAG_MAX_CONTEXT_CHARS": Config.RAG_MAX_CONTEXT_CHARS,
+            "DIFY_API_BASE_URL": Config.DIFY_API_BASE_URL,
+            "DIFY_API_KEY": Config.DIFY_API_KEY,
+            "DIFY_KNOWLEDGE_API_KEY": Config.DIFY_KNOWLEDGE_API_KEY,
+            "DIFY_KNOWLEDGE_BASE_ID": Config.DIFY_KNOWLEDGE_BASE_ID,
+            "DIFY_KNOWLEDGE_ENABLED": Config.DIFY_KNOWLEDGE_ENABLED,
+            "DIFY_KNOWLEDGE_SEARCH_METHOD": Config.DIFY_KNOWLEDGE_SEARCH_METHOD,
+            "CBT_LLM_ENABLED": Config.CBT_LLM_ENABLED,
+            "CRISIS_DETECTION_ENABLED": Config.CRISIS_DETECTION_ENABLED,
+            "CRISIS_LLM_DETECTION_ENABLED": Config.CRISIS_LLM_DETECTION_ENABLED,
+            "TRANSPLANT_LLM_SCENARIO_ENABLED": Config.TRANSPLANT_LLM_SCENARIO_ENABLED,
+            "HISTORY_COMPRESSION_ENABLED": Config.HISTORY_COMPRESSION_ENABLED,
+            "COHORT_LEARNING_CONTEXT_ENABLED": Config.COHORT_LEARNING_CONTEXT_ENABLED,
+        }
+
+        class _Response:
+            status_code = 200
+            text = "{}"
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {
+                    "records": [
+                        {
+                            "score": 0.92,
+                            "document": {"name": "manual_rag_test.md"},
+                            "segment": {
+                                "id": "seg-1",
+                                "document_id": "doc-1",
+                                "content": (
+                                    "希望之树用于记录患者在移植治疗过程中的微小进步。"
+                                    "这份资料中的特殊测试词是：蓝色纸鹤。"
+                                ),
+                            },
+                        }
+                    ]
+                }
+
+        try:
+            Config.AGENT_GRAPH_ENABLED = True
+            Config.AGENT_TOOLS_ENABLED = True
+            Config.AGENT_MODEL_TOOL_CALLING_ENABLED = True
+            Config.RAG_ENABLED = True
+            Config.RAG_BACKEND = "dify"
+            Config.RAG_TOP_K = 1
+            Config.RAG_MAX_CONTEXT_CHARS = 500
+            Config.DIFY_API_BASE_URL = "http://dify.local/v1"
+            Config.DIFY_API_KEY = ""
+            Config.DIFY_KNOWLEDGE_API_KEY = "dify-key"
+            Config.DIFY_KNOWLEDGE_BASE_ID = "dataset-1"
+            Config.DIFY_KNOWLEDGE_ENABLED = True
+            Config.DIFY_KNOWLEDGE_SEARCH_METHOD = "keyword_search"
+            Config.CBT_LLM_ENABLED = False
+            Config.CRISIS_DETECTION_ENABLED = False
+            Config.CRISIS_LLM_DETECTION_ENABLED = False
+            Config.TRANSPLANT_LLM_SCENARIO_ENABLED = False
+            Config.HISTORY_COMPRESSION_ENABLED = False
+            Config.COHORT_LEARNING_CONTEXT_ENABLED = False
+
+            agent = EnhancedChatAgent(load_persistent_data=False)
+            agent.client = _FakeStreamingOpenAI(responses=["资料里说，蓝色纸鹤是特殊测试词。"])
+            with patch("xiaoya_agent.integrations.dify.requests.post", return_value=_Response()) as post:
+                response = "".join(agent.stream_chat("蓝色纸鹤是什么"))
+
+            self.assertIn("特殊测试词", response)
+            self.assertEqual(post.call_count, 1)
+            trace = agent.last_result["tool_trace"]
+            knowledge = next(tool for tool in trace["tools"] if tool["name"] == "knowledge_retrieval")
+            self.assertEqual(trace["source"], "langgraph_prepare_turn")
+            self.assertTrue(knowledge["hasContext"])
+            self.assertEqual(knowledge["matchCount"], 1)
+            self.assertEqual(knowledge["retrievalBackend"], "dify")
+            self.assertEqual(knowledge["topSources"][0]["source"], "manual_rag_test.md")
+
+            final_request = agent.client.requests[0]
+            self.assertTrue(final_request.get("stream"))
+            self.assertNotIn("tools", final_request)
+            system_text = "\n".join(
+                message.get("content", "")
+                for message in final_request["messages"]
+                if message.get("role") == "system"
+            )
+            self.assertIn("[Dify知识库检索结果]", system_text)
+            self.assertIn("蓝色纸鹤", system_text)
+        finally:
+            for key, value in old_values.items():
+                setattr(Config, key, value)
+            reset_rag_index_cache()
 
     def test_rag_does_not_use_local_file_when_dify_missing(self):
         old_values = {
@@ -1814,6 +2116,36 @@ class TestAgentTools(unittest.TestCase):
         finally:
             Config.HISTORY_COMPRESSION_ENABLED = old_history_compression
 
+    @patch("xiaoya_agent.core.agent.OpenAI", _FakeStreamingOpenAI)
+    def test_response_prompt_warns_when_rag_attempt_has_no_context(self):
+        old_history_compression = Config.HISTORY_COMPRESSION_ENABLED
+        try:
+            Config.HISTORY_COMPRESSION_ENABLED = False
+            agent = EnhancedChatAgent(load_persistent_data=False)
+            agent.client = _FakeStreamingOpenAI(responses=["我暂时没有从知识库查到这个词的明确资料。"])
+            stream = agent._create_response_stream(
+                "蓝色纸鹤是什么？",
+                agent._pending_semantic_cbt_analysis(),
+                response_context={
+                    "knowledge_backend": "dify",
+                    "knowledge_context": "",
+                    "knowledge_reason": "no_relevant_chunks",
+                },
+            )
+            list(stream)
+
+            system_text = "\n".join(
+                message.get("content", "")
+                for message in agent.client.requests[0]["messages"]
+                if message.get("role") == "system"
+            )
+            self.assertIn("[Dify知识库检索状态]", system_text)
+            self.assertIn("没有拿到可用于回答的资料片段", system_text)
+            self.assertIn("不要编造", system_text)
+            self.assertIn("资料是否已保存、索引完成", system_text)
+        finally:
+            Config.HISTORY_COMPRESSION_ENABLED = old_history_compression
+
     @patch("xiaoya_agent.core.agent.OpenAI", _FakeToolCallingOpenAI)
     def test_non_stream_response_can_use_model_tool_calling(self):
         old_values = {
@@ -1899,6 +2231,40 @@ class TestAgentTools(unittest.TestCase):
             self.assertTrue(agent.client.requests[0]["stream"])
         finally:
             Config.AGENT_MODEL_TOOL_CALLING_ENABLED = old_tool_calling
+
+    @patch("xiaoya_agent.core.agent.OpenAI", _FakeStreamingOpenAI)
+    def test_stream_chat_keeps_real_stream_after_no_tool_planning(self):
+        old_values = {
+            "AGENT_GRAPH_ENABLED": Config.AGENT_GRAPH_ENABLED,
+            "AGENT_TOOLS_ENABLED": Config.AGENT_TOOLS_ENABLED,
+            "AGENT_MODEL_TOOL_CALLING_ENABLED": Config.AGENT_MODEL_TOOL_CALLING_ENABLED,
+            "CBT_LLM_ENABLED": Config.CBT_LLM_ENABLED,
+            "CRISIS_DETECTION_ENABLED": Config.CRISIS_DETECTION_ENABLED,
+            "CRISIS_LLM_DETECTION_ENABLED": Config.CRISIS_LLM_DETECTION_ENABLED,
+            "TRANSPLANT_LLM_SCENARIO_ENABLED": Config.TRANSPLANT_LLM_SCENARIO_ENABLED,
+            "HISTORY_COMPRESSION_ENABLED": Config.HISTORY_COMPRESSION_ENABLED,
+        }
+        try:
+            Config.AGENT_GRAPH_ENABLED = True
+            Config.AGENT_TOOLS_ENABLED = True
+            Config.AGENT_MODEL_TOOL_CALLING_ENABLED = True
+            Config.CBT_LLM_ENABLED = False
+            Config.CRISIS_DETECTION_ENABLED = False
+            Config.CRISIS_LLM_DETECTION_ENABLED = False
+            Config.TRANSPLANT_LLM_SCENARIO_ENABLED = False
+            Config.HISTORY_COMPRESSION_ENABLED = False
+
+            agent = EnhancedChatAgent(load_persistent_data=False)
+            agent.client = _FakeStreamingOpenAI(responses=["真实流式回复。"])
+            response = "".join(agent.stream_chat("你好"))
+
+            self.assertEqual(response, "真实流式回复。")
+            self.assertEqual(len(agent.client.requests), 1)
+            self.assertNotIn("tools", agent.client.requests[0])
+            self.assertTrue(agent.client.requests[0].get("stream"))
+        finally:
+            for key, value in old_values.items():
+                setattr(Config, key, value)
 
 
 class TestBasicChat(unittest.TestCase):

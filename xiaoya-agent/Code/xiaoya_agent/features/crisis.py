@@ -15,6 +15,7 @@ import os
 from datetime import datetime
 from openai import OpenAI
 from xiaoya_agent.config import Config
+from xiaoya_agent.database import database_storage_enabled, get_database_repository
 from xiaoya_agent.keywords.library import CRISIS_KEYWORDS, DIRECT_CRISIS_ALERT_TYPES, contains_any
 from xiaoya_agent.llm.structured import (
     CrisisPayload,
@@ -572,12 +573,29 @@ class CrisisInterventionModule:
         }
 
     def save_crisis_history(self, filename: str = "crisis_history.json"):
+        user_id = getattr(self, "user_id", None)
+        if database_storage_enabled():
+            if user_id:
+                get_database_repository().save_crisis_history(
+                    user_id=str(user_id),
+                    safe_user_id=str(getattr(self, "safe_user_id", None) or user_id),
+                    history=list(self.crisis_history or []),
+                    psych_model_dir=str(getattr(self, "psych_model_dir", "") or self.data_dir),
+                )
+            return
         filepath = self._get_filepath(filename)
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(self.crisis_history, f, ensure_ascii=False, indent=2)
 
     def load_crisis_history(self, filename: str = "crisis_history.json"):
         try:
+            user_id = getattr(self, "user_id", None)
+            if database_storage_enabled():
+                if user_id:
+                    history = get_database_repository().load_crisis_history(str(user_id))
+                    if isinstance(history, list):
+                        self.crisis_history = history
+                return
             filepath = self._get_filepath(filename)
             with open(filepath, 'r', encoding='utf-8') as f:
                 self.crisis_history = json.load(f)
@@ -589,5 +607,6 @@ class CrisisInterventionModule:
     def _get_filepath(self, filename: str) -> str:
         if os.path.isabs(filename):
             return filename
-        os.makedirs(self.data_dir, exist_ok=True)
+        if not database_storage_enabled():
+            os.makedirs(self.data_dir, exist_ok=True)
         return os.path.join(self.data_dir, filename)

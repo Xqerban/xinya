@@ -6,9 +6,11 @@ import sys
 import os
 import json
 import threading
+import re
 from colorama import init, Fore, Style
 from xiaoya_agent.core.agent import EnhancedChatAgent
 from xiaoya_agent.config import Config
+from xiaoya_agent.database import database_storage_enabled
 from xiaoya_agent.features.crisis import build_crisis_alarm
 from xiaoya_agent.runtime.session import (
     build_agent_psych_model_payload,
@@ -18,6 +20,16 @@ from xiaoya_agent.runtime.session import (
     list_user_summaries,
     sanitize_user_id,
     sync_user_conversation_history,
+)
+from xiaoya_agent.features.cohort_learning import (
+    get_cohort_learning_model,
+    rebuild_cohort_learning_model,
+)
+from xiaoya_agent.features.harbor import (
+    build_harbor_conversation_data,
+    build_harbor_energy_payload,
+    create_harbor_practice,
+    list_harbor_catalog,
 )
 from xiaoya_agent.utils.formatting import markdown_to_plain_text
 
@@ -30,7 +42,8 @@ DEFAULT_CLI_USER_ID = os.getenv("CLI_DEFAULT_USER_ID", "cli-default")
 def get_cli_data_dir(user_id: str) -> str:
     """返回某个用户专属的 CLI 对话目录。"""
     data_dir = os.path.abspath(os.path.join(get_user_model_dir(user_id), "cli_session"))
-    os.makedirs(data_dir, exist_ok=True)
+    if not database_storage_enabled():
+        os.makedirs(data_dir, exist_ok=True)
     return data_dir
 
 
@@ -45,9 +58,11 @@ def create_cli_agent(user_id: str = DEFAULT_CLI_USER_ID) -> EnhancedChatAgent:
         psych_model_dir=psych_model_dir,
     )
     agent.graph_thread_id = f"cli_{sanitize_user_id(resolved_user_id)}"
+    agent.storage_source = "cli"
+    agent.storage_conversation_id = "cli"
 
     history_path = os.path.join(data_dir, "chat_history.json")
-    if os.path.exists(history_path):
+    if database_storage_enabled() or os.path.exists(history_path):
         agent.load_history()
     return agent
 
@@ -59,8 +74,13 @@ def list_cli_users() -> list:
 def print_current_user(agent: EnhancedChatAgent):
     user_id = getattr(agent, "user_id", None) or DEFAULT_CLI_USER_ID
     print(Fore.YELLOW + f"当前用户: {user_id}")
-    print(Fore.YELLOW + f"用户目录: {getattr(agent, 'psych_model_dir', '')}")
-    print(Fore.YELLOW + f"CLI 会话目录: {getattr(agent, 'data_dir', '')}")
+    if database_storage_enabled():
+        conversation_id = getattr(agent, "storage_conversation_id", None) or "cli"
+        print(Fore.YELLOW + "存储后端: MySQL 数据库")
+        print(Fore.YELLOW + f"CLI 会话标识: {conversation_id}")
+    else:
+        print(Fore.YELLOW + f"用户目录: {getattr(agent, 'psych_model_dir', '')}")
+        print(Fore.YELLOW + f"CLI 会话目录: {getattr(agent, 'data_dir', '')}")
 
 
 def build_cli_psych_model_payload(agent: EnhancedChatAgent) -> dict:
@@ -74,6 +94,97 @@ def print_psych_model(agent: EnhancedChatAgent):
     print(Fore.CYAN + "\n当前用户心理模型:")
     print(json.dumps(build_cli_psych_model_payload(agent), ensure_ascii=False, indent=2))
     print()
+
+
+def print_harbor_catalog():
+    """展示心之港湾可用场景、工具和时长。"""
+    catalog = list_harbor_catalog()
+    print(Fore.CYAN + "\n心之港湾工具目录:")
+    print(Fore.YELLOW + "  可用场景:")
+    for item in catalog.get("scenarios", []):
+        print(f"    - {item.get('name')} ({item.get('key')})，默认 {item.get('defaultDurationSeconds')} 秒")
+
+    print(Fore.YELLOW + "\n  可用工具:")
+    for item in catalog.get("tools", []):
+        print(f"    - {item.get('name')} ({item.get('key')})：{item.get('description')}")
+
+    durations = ", ".join(str(value) for value in catalog.get("durationOptionsSeconds", []))
+    print(Fore.YELLOW + f"\n  可选时长: {durations} 秒")
+    print("  示例: harbor 焦虑 60 呼吸")
+    print("  示例: harbor 失眠 180 冥想\n")
+
+
+def parse_harbor_command(user_input: str) -> dict:
+    """解析 CLI 的心之港湾命令参数。"""
+    parts = user_input.strip().split()
+    tokens = parts[1:] if parts and parts[0].lower() == "harbor" else parts
+    params = {
+        "scenario": "",
+        "tool_type": "",
+        "duration_seconds": 0,
+        "query": " ".join(tokens),
+        "mode": "voice",
+    }
+
+    text_tokens = []
+    for token in tokens:
+        if token.isdigit():
+            params["duration_seconds"] = int(token)
+        else:
+            text_tokens.append(token)
+
+    if text_tokens:
+        params["scenario"] = text_tokens[0]
+    if len(text_tokens) > 1:
+        params["tool_type"] = text_tokens[1]
+    return params
+
+
+def display_harbor_practice(practice: dict):
+    """以适合命令行阅读的方式展示心之港湾练习。"""
+    print(Fore.CYAN + f"\n心之港湾: {practice.get('title')}")
+    print(
+        Fore.YELLOW
+        + f"  场景: {practice.get('scenario', {}).get('name')} | "
+        + f"工具: {practice.get('toolType', {}).get('name')} | "
+        + f"时长: {practice.get('durationLabel')}"
+    )
+    print(Fore.BLUE + "\n  语音引导词:")
+    print(f"  {practice.get('voiceGuideText', '')}")
+
+    segments = practice.get("segments") or []
+    if segments:
+        print(Fore.YELLOW + "\n  分段引导:")
+        for segment in segments:
+            order = segment.get("order") or segment.get("step") or "-"
+            duration = segment.get("durationSeconds") or segment.get("duration") or 0
+            text = segment.get("text") or segment.get("instruction") or ""
+            title = segment.get("title")
+            if title:
+                print(f"    {order}. {title} ({duration}秒): {text}")
+            else:
+                print(f"    {order}. ({duration}秒) {text}")
+
+    music = practice.get("musicSuggestion")
+    if isinstance(music, dict):
+        if music.get("enabled", True):
+            print(Fore.MAGENTA + f"\n  音乐建议: {music.get('description') or music.get('text') or ''}")
+    elif music:
+        print(Fore.MAGENTA + f"\n  音乐建议: {music}")
+    print(Fore.RED + f"\n  安全提示: {practice.get('safetyNote')}\n" + Style.RESET_ALL)
+
+
+def record_harbor_practice(agent: EnhancedChatAgent, practice: dict, message: str = ""):
+    """把用户主动完成的调节练习记录进心理能量系统。"""
+    energy_result = agent.energy_model.apply_llm_assessment(
+        build_harbor_conversation_data(practice, message=message),
+        build_harbor_energy_payload(practice),
+    )
+    if Config.ENERGY_FEEDBACK_ENABLED and energy_result:
+        energy_report = agent.energy_model.get_energy_report()
+        display_energy_feedback(energy_result, energy_report)
+    if Config.AUTO_SAVE_PROGRESS:
+        agent.energy_model.save_progress()
 
 
 def switch_cli_user(agent: EnhancedChatAgent, user_id: str):
@@ -143,10 +254,14 @@ def print_help():
     print("  achievements  - 查看成就系统")
     print("  progress      - 查看综合进步报告")
     print("  grounding     - 获取正念接地练习")
+    print("  harbor        - 查看心之港湾工具目录")
+    print("  harbor <场景> [秒数] [工具] - 启动床旁放松练习，如 harbor 焦虑 60 呼吸")
     print("  reset         - 重置所有数据（清除所有历史记录）")
     print("  help          - 显示此帮助信息")
     print("  psych-model   - 查看当前用户心理模型")
     print("  model         - psych-model 的简写")
+    print("  cohort        - 查看匿名群体学习模型")
+    print("  cohort rebuild - 重建匿名群体学习模型")
     print()
 
 def display_energy_feedback(energy_assessment: dict, energy_report: dict):
@@ -206,15 +321,116 @@ def display_crisis_alert(crisis_detection: dict):
     print(color + f" 处置动作: {alarm['action']}\n" + Style.RESET_ALL)
 
 
+def _knowledge_tools_from_trace(tool_trace: dict) -> list:
+    """从工具轨迹中取出知识库检索记录。"""
+    if not isinstance(tool_trace, dict):
+        return []
+    tools = tool_trace.get("tools")
+    if not isinstance(tools, list):
+        return []
+    return [
+        tool for tool in tools
+        if isinstance(tool, dict) and tool.get("name") == "knowledge_retrieval"
+    ]
+
+
+def display_knowledge_retrieval_trace(result: dict, agent: EnhancedChatAgent = None):
+    """显示本轮 Dify 知识库召回情况，方便人工判断 RAG 是否生效。"""
+    tool_trace = (result or {}).get("tool_trace") or (result or {}).get("toolTrace")
+    if not tool_trace and agent is not None:
+        tool_trace = getattr(agent, "last_tool_trace", None)
+
+    knowledge_tools = _knowledge_tools_from_trace(tool_trace)
+    if not knowledge_tools:
+        return
+
+    visible_tools = []
+    for tool in knowledge_tools:
+        reason = str(tool.get("reason") or "").strip()
+        match_count = int(tool.get("matchCount") or 0)
+        errors = tool.get("errors") or []
+        attempted = (
+            match_count > 0
+            or bool(tool.get("hasContext"))
+            or bool(errors)
+            or reason not in {"", "auto_skipped_for_speed", "auto_skipped"}
+        )
+        if attempted:
+            visible_tools.append(tool)
+
+    if not visible_tools:
+        return
+
+    print(Fore.CYAN + "\n 知识库召回:")
+    for tool in visible_tools:
+        backend = tool.get("retrievalBackend") or "dify"
+        reason = tool.get("reason") or "unknown"
+        match_count = int(tool.get("matchCount") or 0)
+        has_context = bool(tool.get("hasContext"))
+        method = tool.get("effectiveSearchMethod") or tool.get("scoringMode") or "-"
+
+        if has_context:
+            status = "已触发并注入上下文"
+        elif reason == "no_relevant_chunks":
+            status = "已触发但未召回相关片段"
+        elif reason == "dify_retrieval_failed":
+            status = "已触发但检索失败"
+        else:
+            status = "已触发"
+
+        print(Fore.YELLOW + f"  状态: {status}")
+        print(f"  后端: {backend}")
+        print(f"  检索方式: {method}")
+        print(f"  召回片段数: {match_count}")
+
+        sources = tool.get("topSources") or []
+        if sources:
+            print("  来源:")
+            for source in sources[:3]:
+                if not isinstance(source, dict):
+                    continue
+                source_name = source.get("source") or "未知来源"
+                score = source.get("score")
+                if score is None:
+                    print(f"    - {source_name}")
+                else:
+                    print(f"    - {source_name} (score={score})")
+
+        errors = tool.get("errors") or []
+        if errors:
+            print(Fore.RED + "  错误:")
+            for error in errors[:2]:
+                print(Fore.RED + f"    - {error}")
+        elif not has_context and reason:
+            print(f"  原因: {reason}")
+
+    print(Style.RESET_ALL)
+
+
+def _normalize_cli_stream_chunk(text: str, previous_was_space: bool = False) -> str:
+    """合并模型输出中的段落换行，让 CLI 回复保持单行可读。"""
+    text = str(text or "").replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"\s*\n+\s*", " ", text)
+    text = re.sub(r"[ \t\f\v]{2,}", " ", text)
+    if previous_was_space:
+        text = text.lstrip()
+    return text
+
+
 def run_chat_turn(agent, user_input):
     """按 API 相同的核心流式链路和后处理执行一轮 CLI 对话。"""
     print(Fore.BLUE + "智能体: " + Style.RESET_ALL, end="")
 
+    previous_was_space = False
     for chunk in agent.stream_chat(user_input):
-        plain_chunk = markdown_to_plain_text(chunk, strip=False)
+        plain_chunk = _normalize_cli_stream_chunk(
+            markdown_to_plain_text(chunk, strip=False),
+            previous_was_space=previous_was_space,
+        )
         if plain_chunk:
             sys.stdout.write(plain_chunk)
             sys.stdout.flush()
+            previous_was_space = plain_chunk[-1].isspace()
 
     print()
     if hasattr(agent, "wait_for_background_analysis"):
@@ -230,6 +446,8 @@ def run_chat_turn(agent, user_input):
 
     crisis_detection = result.get("crisis_detection", {})
     display_crisis_alert(crisis_detection)
+
+    display_knowledge_retrieval_trace(result, agent=agent)
 
     if Config.ENERGY_FEEDBACK_ENABLED and not crisis_detection.get("alert", False):
         display_energy_feedback(result.get("energy_assessment"), result.get("energy_report"))
@@ -267,7 +485,10 @@ def main():
             elif lower_input == 'load':
                 agent.load_history()
                 sync_cli_conversation(agent)
-                print(Fore.YELLOW + "对话历史已从 chat_history.json 加载。")
+                if database_storage_enabled():
+                    print(Fore.YELLOW + "对话历史已从数据库加载。")
+                else:
+                    print(Fore.YELLOW + "对话历史已从 chat_history.json 加载。")
 
             elif lower_input == 'user':
                 print_current_user(agent)
@@ -332,6 +553,18 @@ def main():
 
             elif lower_input in {'psych-model', 'model'}:
                 print_psych_model(agent)
+
+            elif lower_input == 'cohort':
+                payload = get_cohort_learning_model(refresh_if_stale=True)
+                print(Fore.CYAN + "\n匿名群体学习模型:")
+                print(json.dumps(payload, ensure_ascii=False, indent=2))
+                print()
+
+            elif lower_input == 'cohort rebuild':
+                payload = rebuild_cohort_learning_model(force=True)
+                print(Fore.GREEN + "\n匿名群体学习模型已重建:")
+                print(json.dumps(payload, ensure_ascii=False, indent=2))
+                print()
 
             elif lower_input.startswith('phase'):
                 # phase            -> 显示当前分期
@@ -500,6 +733,21 @@ def main():
                 if Config.AUTO_SAVE_PROGRESS:
                     agent.energy_model.save_progress()
 
+            elif lower_input == 'harbor':
+                print_harbor_catalog()
+
+            elif lower_input.startswith('harbor '):
+                params = parse_harbor_command(user_input)
+                practice = create_harbor_practice(
+                    scenario=params["scenario"],
+                    tool_type=params["tool_type"],
+                    duration_seconds=params["duration_seconds"],
+                    query=params["query"],
+                    mode=params["mode"],
+                )
+                display_harbor_practice(practice)
+                record_harbor_practice(agent, practice, message=params["query"])
+
             elif lower_input == 'reset':
                 # 确认重置操作
                 print(Fore.RED + f"\n警告：此操作将清除当前用户 {current_user_id} 的数据，包括：")
@@ -508,10 +756,15 @@ def main():
                 print("  - CBT 用户档案")
                 print("  - 心理能量进度")
                 print("  - 危机历史记录")
-                print("  - 当前用户的持久化文件")
+                if database_storage_enabled():
+                    print("  - 当前用户在数据库中的持久化数据")
+                else:
+                    print("  - 当前用户的持久化文件")
                 confirm = input(Fore.YELLOW + "\n确认要重置吗？输入 'yes' 或 'y' 确认: " + Style.RESET_ALL).strip().lower()
                 if confirm in ['yes', 'y']:
                     result = agent.reset()
+                    if database_storage_enabled():
+                        save_cli_agent(agent)
                     print(Fore.GREEN + f"\n{result['message']}")
                     if result['deleted_files']:
                         print(f"已删除文件: {', '.join(result['deleted_files'])}")

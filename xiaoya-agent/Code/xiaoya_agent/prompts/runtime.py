@@ -1,8 +1,7 @@
 """提示词配置注册表。
 
-这里不绑定具体 Web 后台或数据库，只提供一个稳定的运行时配置层。
-运行时会优先读取 ``data/prompt_registry.json``，因此 API 写入后下一轮
-对话就能热更新提示词，不需要重启服务。
+这里不绑定具体 Web 后台，只提供一个稳定的运行时配置层。MySQL 存储模式下注册表直接保存在数据库；
+旧的 ``data/prompt_registry.json`` 只作为一次性迁移来源。
 """
 import copy
 import difflib
@@ -15,6 +14,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from xiaoya_agent.database import database_storage_enabled, get_database_repository
 
 
 DEFAULT_REALTIME_INSTRUCTION = (
@@ -189,13 +190,8 @@ def _normalize_entry(key: str, value: Any, builtin: Optional[Dict[str, Any]] = N
     }
 
 
-def _load_registry_from_disk(path: Path) -> Dict[str, Dict[str, Dict[str, Any]]]:
+def _load_registry_data(data: Any) -> Dict[str, Dict[str, Dict[str, Any]]]:
     registry = _builtin_registry()
-    if not path.exists():
-        return registry
-
-    with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
     if not isinstance(data, dict):
         return registry
 
@@ -216,8 +212,36 @@ def _load_registry_from_disk(path: Path) -> Dict[str, Dict[str, Dict[str, Any]]]
     return registry
 
 
+def _load_registry_from_disk(path: Path) -> Dict[str, Dict[str, Dict[str, Any]]]:
+    if not path.exists():
+        return _builtin_registry()
+
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    return _load_registry_data(data)
+
+
 def _get_registry() -> Dict[str, Dict[str, Dict[str, Any]]]:
     global _registry_cache, _registry_cache_mtime, _registry_cache_path
+
+    if database_storage_enabled():
+        cache_key = "mysql:prompt_registry"
+        with _registry_lock:
+            if _registry_cache is not None and _registry_cache_path == cache_key:
+                return copy.deepcopy(_registry_cache)
+
+            repo = get_database_repository()
+            stored = repo.load_prompt_registry()
+            if isinstance(stored, dict):
+                registry = _load_registry_data(stored)
+            else:
+                legacy_path = _prompt_registry_path()
+                registry = _load_registry_from_disk(legacy_path) if legacy_path.exists() else _builtin_registry()
+                repo.save_prompt_registry(registry)
+            _registry_cache = registry
+            _registry_cache_mtime = None
+            _registry_cache_path = cache_key
+            return copy.deepcopy(registry)
 
     path = _prompt_registry_path()
     path_str = str(path)
@@ -239,6 +263,13 @@ def _get_registry() -> Dict[str, Dict[str, Dict[str, Any]]]:
 
 def _write_registry(registry: Dict[str, Dict[str, Dict[str, Any]]]) -> None:
     global _registry_cache, _registry_cache_mtime, _registry_cache_path
+
+    if database_storage_enabled():
+        get_database_repository().save_prompt_registry(registry)
+        _registry_cache = copy.deepcopy(registry)
+        _registry_cache_mtime = None
+        _registry_cache_path = "mysql:prompt_registry"
+        return
 
     path = _prompt_registry_path()
     path.parent.mkdir(parents=True, exist_ok=True)

@@ -1,8 +1,8 @@
 """会话级智能体状态快照。
 
 本模块把对话历史、记忆中枢、用户状态和提示词运行时选择，
-存进每个会话一个经过校验的 JSON 文档。它用于补充现有的功能级文件，
-并为 API 在进程重启后恢复智能体提供统一来源。
+存进每个会话一个经过校验的状态文档。MySQL 模式写入数据库，
+JSON 模式才落本地文件，用于 API 在进程重启后恢复智能体。
 """
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 from xiaoya_agent.config import Config
+from xiaoya_agent.database import database_storage_enabled, get_database_repository
 
 STATE_FILENAME = "agent_state.json"
 
@@ -51,8 +52,30 @@ def _read_json(path: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def load_session_state(data_dir: str) -> Optional[AgentSessionState]:
+def _session_id_from_data_dir(data_dir: str) -> Optional[str]:
+    if database_storage_enabled():
+        return None
+    try:
+        meta = _read_json(os.path.join(data_dir, "session_meta.json"))
+        if isinstance(meta, dict) and meta.get("sessionId"):
+            return str(meta["sessionId"])
+    except Exception:
+        pass
+    return None
+
+
+def load_session_state(data_dir: str, session_id: Optional[str] = None) -> Optional[AgentSessionState]:
     if not getattr(Config, "SESSION_STATE_ENABLED", True):
+        return None
+    if database_storage_enabled():
+        resolved_session_id = session_id or _session_id_from_data_dir(data_dir)
+        if resolved_session_id:
+            data = get_database_repository().load_session_state(resolved_session_id)
+            if data:
+                try:
+                    return AgentSessionState.model_validate(data)
+                except Exception:
+                    return None
         return None
     data = _read_json(_state_path(data_dir))
     if not data:
@@ -63,8 +86,15 @@ def load_session_state(data_dir: str) -> Optional[AgentSessionState]:
         return None
 
 
-def load_session_history(data_dir: str) -> Optional[List[Dict[str, Any]]]:
-    state = load_session_state(data_dir)
+def load_session_history(data_dir: str, session_id: Optional[str] = None) -> Optional[List[Dict[str, Any]]]:
+    if database_storage_enabled():
+        resolved_session_id = session_id or _session_id_from_data_dir(data_dir)
+        if resolved_session_id:
+            history = get_database_repository().load_session_history(resolved_session_id)
+            if isinstance(history, list):
+                return history
+        return None
+    state = load_session_state(data_dir, session_id=session_id)
     if not state:
         return None
     return state.conversation_history
@@ -105,6 +135,9 @@ def snapshot_session_state(session_id: str, thread_id: str, agent: Any) -> Agent
 
 def save_session_state(session_id: str, thread_id: str, data_dir: str, agent: Any) -> AgentSessionState:
     state = snapshot_session_state(session_id, thread_id, agent)
+    if database_storage_enabled():
+        get_database_repository().save_session_state(state.model_dump())
+        return state
     os.makedirs(data_dir, exist_ok=True)
     path = _state_path(data_dir)
     temp_path = f"{path}.tmp"
@@ -115,6 +148,11 @@ def save_session_state(session_id: str, thread_id: str, data_dir: str, agent: An
 
 
 def delete_session_state(data_dir: str) -> None:
+    if database_storage_enabled():
+        session_id = _session_id_from_data_dir(data_dir)
+        if session_id:
+            get_database_repository().clear_session_runtime(session_id)
+        return
     path = _state_path(data_dir)
     if os.path.exists(path):
         os.remove(path)

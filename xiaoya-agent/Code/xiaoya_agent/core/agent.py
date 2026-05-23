@@ -5,11 +5,13 @@ from openai import OpenAI
 from typing import List, Dict, Optional, Iterator, Any, Tuple
 import json
 import os
+import re
 import threading
 import logging
 import time
 from datetime import datetime
 from xiaoya_agent.config import Config
+from xiaoya_agent.database import database_storage_enabled, get_database_repository
 from xiaoya_agent.features.cbt import CBTModule, CBTTechnique
 from xiaoya_agent.features.energy import PsychologicalEnergyModel
 from xiaoya_agent.features.crisis import CrisisInterventionModule, build_crisis_alarm
@@ -41,6 +43,11 @@ from xiaoya_agent.llm.structured import (
     create_chat_completion_json,
     parse_structured_json,
 )
+from xiaoya_agent.features.cohort_learning import (
+    get_cohort_learning_context,
+    mark_cohort_learning_dirty,
+)
+from xiaoya_agent.mcp_services import should_use_mcp_services
 
 logger = logging.getLogger(__name__)
 USER_FACING_ERROR_MESSAGE = "我刚刚有点卡住了，我们再试一次，好吗？"
@@ -60,11 +67,13 @@ class EnhancedChatAgent:
         """初始化智能体"""
         Config.validate_config()
         self.data_dir = os.path.abspath(data_dir or Config.DATA_DIR)
-        os.makedirs(self.data_dir, exist_ok=True)
+        if not database_storage_enabled():
+            os.makedirs(self.data_dir, exist_ok=True)
         self.user_id = user_id
         self.psych_model_enabled = bool(user_id or psych_model_dir)
         self.psych_model_dir = os.path.abspath(psych_model_dir or self.data_dir)
-        os.makedirs(self.psych_model_dir, exist_ok=True)
+        if not database_storage_enabled():
+            os.makedirs(self.psych_model_dir, exist_ok=True)
 
         self.client = OpenAI(
             api_key=Config.API_KEY,
@@ -80,6 +89,9 @@ class EnhancedChatAgent:
         self.system_prompt_override: Optional[str] = None
         self.extra_prompt_instructions: Optional[str] = None
         self.graph_thread_id = "local"
+        self.storage_session_id: Optional[str] = None
+        self.storage_source: Optional[str] = None
+        self.storage_conversation_id: Optional[str] = None
         self.last_result: Optional[Dict[str, Any]] = None
         self.last_tool_trace: Optional[Dict[str, Any]] = None
         self._pending_analysis_task: Optional[Dict[str, Any]] = None
@@ -102,12 +114,18 @@ class EnhancedChatAgent:
         # 初始化增强模块
         self.cbt_module = CBTModule()
         self.energy_model = PsychologicalEnergyModel(data_dir=self.psych_model_dir)
+        self.energy_model.user_id = self.user_id
+        self.energy_model.safe_user_id = self._safe_storage_user_id()
+        self.energy_model.psych_model_dir = self.psych_model_dir
 
         # 危机干预模块（带报警回调）
         self.crisis_module = CrisisInterventionModule(
             alert_callback=self._crisis_alert_callback,
             data_dir=self.psych_model_dir,
         )
+        self.crisis_module.user_id = self.user_id
+        self.crisis_module.safe_user_id = self._safe_storage_user_id()
+        self.crisis_module.psych_model_dir = self.psych_model_dir
 
         # 加载历史数据
         if load_persistent_data:
@@ -156,6 +174,11 @@ class EnhancedChatAgent:
             "updated_turns": 0,
             "last_updated": None,
         }
+
+    def _safe_storage_user_id(self) -> str:
+        raw = str(self.user_id or "default")
+        safe = re.sub(r"[^0-9A-Za-z_.-]+", "_", raw).strip("._")[:80]
+        return safe or "default"
 
     def chat(self, user_message: str) -> Dict[str, any]:
         """
@@ -458,12 +481,7 @@ class EnhancedChatAgent:
 
         serialized_cbt_analysis = self._serialize_analysis_data(cbt_analysis)
         serialized_crisis_detection = self._serialize_analysis_data(crisis_detection)
-        tool_trace = conversation_data.get("tool_trace")
-        if tool_trace is None and conversation_data.get("local_tools"):
-            tool_trace = summarize_tool_outputs(
-                conversation_data.get("local_tools", {}),
-                source="langgraph_prepare_turn",
-            )
+        tool_trace = self._build_turn_tool_trace(conversation_data)
         self.last_tool_trace = tool_trace
 
         self.conversation_history.append({
@@ -516,6 +534,62 @@ class EnhancedChatAgent:
             ).start()
 
         return result
+
+    def _build_turn_tool_trace(self, conversation_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Build one metadata trace from deterministic graph tools and model-called tools."""
+        conversation_data = conversation_data or {}
+        model_trace = conversation_data.get("tool_trace")
+        local_outputs = conversation_data.get("local_tools")
+        local_trace = None
+        if local_outputs:
+            local_trace = summarize_tool_outputs(
+                local_outputs,
+                source="langgraph_prepare_turn",
+            )
+        if local_trace and model_trace:
+            return self._merge_tool_traces(local_trace, model_trace)
+        return model_trace or local_trace
+
+    def _merge_tool_traces(
+        self,
+        local_trace: Dict[str, Any],
+        model_trace: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Merge graph-prefetched context with later model tool planning metadata."""
+        combined_tools: List[Dict[str, Any]] = []
+        tool_indexes: Dict[str, int] = {}
+
+        def tool_score(tool: Dict[str, Any]) -> Tuple[int, int]:
+            return (
+                1 if tool.get("hasContext") else 0,
+                int(tool.get("matchCount") or tool.get("serviceCount") or 0),
+            )
+
+        for trace in (local_trace or {}, model_trace or {}):
+            for tool in trace.get("tools") or []:
+                if not isinstance(tool, dict):
+                    continue
+                name = str(tool.get("name") or "")
+                if not name:
+                    combined_tools.append(tool)
+                    continue
+                existing_index = tool_indexes.get(name)
+                if existing_index is None:
+                    tool_indexes[name] = len(combined_tools)
+                    combined_tools.append(tool)
+                    continue
+                if tool_score(tool) > tool_score(combined_tools[existing_index]):
+                    combined_tools[existing_index] = tool
+
+        merged = dict(model_trace or {})
+        merged.update({
+            "source": "hybrid_tool_context",
+            "toolCount": len(combined_tools),
+            "tools": combined_tools,
+            "localToolCount": int((local_trace or {}).get("toolCount", 0) or 0),
+            "modelToolCount": int((model_trace or {}).get("toolCount", 0) or 0),
+        })
+        return merged
 
     def _stream_static_response(
         self,
@@ -829,7 +903,46 @@ class EnhancedChatAgent:
             return
 
     def save_history(self, filename: str = "chat_history.json"):
-        """保存对话历史到文件"""
+        """保存对话历史到当前存储后端。"""
+        if database_storage_enabled():
+            repo = get_database_repository()
+            session_id = getattr(self, "storage_session_id", None)
+            if session_id:
+                repo.save_session_messages(str(session_id), list(self.conversation_history or []))
+                return
+            if self.user_id and getattr(self, "storage_source", None):
+                source = str(getattr(self, "storage_source", None) or "cli")
+                conversation_id = str(getattr(self, "storage_conversation_id", None) or source)
+                visible_history = [message for message in list(self.conversation_history or []) if message.get("role") != "system"]
+                now = datetime.now().replace(microsecond=0).isoformat()
+                entry = {
+                    "userId": self.user_id,
+                    "safeUserId": self._safe_storage_user_id(),
+                    "source": source,
+                    "conversationId": conversation_id,
+                    "safeConversationId": conversation_id,
+                    "sessionId": conversation_id if source == "api" else None,
+                    "title": f"{source.upper()} 会话 - {self.user_id}",
+                    "createdAt": now,
+                    "updatedAt": now,
+                    "lastMessageAt": None,
+                    "messageCount": len([message for message in visible_history if message.get("role") == "user"]),
+                    "historyCount": len(visible_history),
+                    "dataDir": self.data_dir,
+                    "snapshotPath": None,
+                }
+                repo.save_conversation_snapshot(
+                    user_id=str(self.user_id),
+                    safe_user_id=self._safe_storage_user_id(),
+                    conversation_id=conversation_id,
+                    safe_conversation_id=conversation_id,
+                    source=source,
+                    history=list(self.conversation_history or []),
+                    metadata={"sessionId": conversation_id, "title": entry["title"], "dataDir": self.data_dir},
+                    entry=entry,
+                )
+                return
+            return
         filepath = self._get_filepath(filename)
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(self.conversation_history, f, ensure_ascii=False, indent=2)
@@ -888,6 +1001,18 @@ class EnhancedChatAgent:
                     f"{mcp_context}"
                 )
             })
+        harbor_context = response_context.get("harbor_context")
+        if harbor_context:
+            extra_system_messages.append({
+                "role": "system",
+                "content": (
+                    "[心之港湾工具结果] 以下内容来自本地确定性心理调节工具库。"
+                    "如果用户请求放松、呼吸、正念、冥想、音乐放松、肌肉放松或54321接地，"
+                    "请优先按这里的练习脚本给出床旁可完成的简短语音引导。"
+                    "不要要求复杂动作；如果出现明显身体红旗，仍优先建议联系医护。\n"
+                    f"{harbor_context}"
+                )
+            })
         knowledge_context = response_context.get("knowledge_context")
         if knowledge_context:
             knowledge_backend = str(response_context.get("knowledge_backend") or "dify").lower()
@@ -905,6 +1030,19 @@ class EnhancedChatAgent:
                 )
             })
             knowledge_context = ""
+        else:
+            knowledge_reason = str(response_context.get("knowledge_reason") or "").strip()
+            if knowledge_reason and knowledge_reason not in {"ok", "auto_skipped_for_speed"}:
+                extra_system_messages.append({
+                    "role": "system",
+                    "content": (
+                        "[Dify知识库检索状态] 本轮已经尝试检索 Dify 知识库，但没有拿到可用于回答的资料片段。"
+                        f"检索状态：{knowledge_reason}。"
+                        "如果用户询问资料中的定义、项目术语、测试词或事实，不要编造；"
+                        "请直接说明暂时没有从知识库查到这个词的明确资料，"
+                        "可以邀请用户确认资料是否已保存、索引完成，或稍后重试。"
+                    )
+                })
         if knowledge_context:
             extra_system_messages.append({
                 "role": "system",
@@ -978,6 +1116,64 @@ class EnhancedChatAgent:
             and getattr(Config, "AGENT_MODEL_TOOL_CALLING_ENABLED", True)
         )
 
+    def _should_plan_model_tools_for_stream(
+        self,
+        user_message: str,
+        analysis: Dict,
+        response_context: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """Keep ordinary streaming direct; only plan tools when a tool is likely needed."""
+        if not self._model_tool_calling_enabled():
+            return False
+
+        response_context = response_context or {}
+        if any(
+            response_context.get(key)
+            for key in (
+                "knowledge_context",
+                "knowledge_reason",
+                "mcp_context",
+                "harbor_context",
+                "template",
+            )
+        ):
+            return False
+
+        if should_use_mcp_services(user_message):
+            return True
+        if self._should_plan_harbor_tool_for_stream(user_message):
+            return True
+
+        return False
+
+    def _should_plan_harbor_tool_for_stream(self, user_message: str) -> bool:
+        """Only plan harbor tools for explicit exercise requests, not every anxious turn."""
+        normalized = str(user_message or "").strip().lower()
+        if not normalized:
+            return False
+        explicit_terms = [
+            "心之港湾",
+            "港湾",
+            "放松练习",
+            "带我放松",
+            "呼吸练习",
+            "呼吸调节",
+            "54321",
+            "接地练习",
+            "正念",
+            "冥想",
+            "音乐放松",
+            "肌肉放松",
+        ]
+        if any(term in normalized for term in explicit_terms):
+            return True
+
+        action_terms = ["带我", "做一个", "做一次", "来一个", "练习一下"]
+        need_terms = ["放松", "呼吸", "睡不着", "失眠", "疼痛", "害怕", "焦虑", "崩溃", "撑不住"]
+        return any(term in normalized for term in action_terms) and any(
+            term in normalized for term in need_terms
+        )
+
     def _with_tool_choice_instruction(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """在模型工具选择阶段补充工具使用要求。"""
         if not messages:
@@ -988,6 +1184,8 @@ class EnhancedChatAgent:
                 "[工具选择要求] 你可以根据用户原话决定是否调用工具。"
                 "如果用户询问当前时间/日期/星期，必须调用 mcp_service_router，不能自己猜。"
                 "如果用户询问资料、知识库、项目术语或需要外部资料支撑的事实，优先调用 knowledge_retrieval。"
+                "如果用户明确想做心之港湾、呼吸、正念、冥想、音乐放松、肌肉放松、54321接地，"
+                "或表达焦虑/恐惧/失眠/疼痛/情绪崩溃且希望马上缓一缓，可调用 harbor_regulation_tool。"
                 "如果用户涉及骨髓移植具体阶段或治疗场景，可调用 transplant_context_lookup 获取分期和话术素材。"
                 "如果不需要工具，就不要调用工具。"
             ),
@@ -1006,7 +1204,11 @@ class EnhancedChatAgent:
             analysis=analysis,
             response_context=response_context,
         )
-        if not self._model_tool_calling_enabled():
+        if not self._should_plan_model_tools_for_stream(
+            user_message=user_message,
+            analysis=analysis,
+            response_context=response_context,
+        ):
             return messages, max_tokens, None, None
 
         tools = get_model_tool_definitions()
@@ -1037,15 +1239,12 @@ class EnhancedChatAgent:
         message = first_response.choices[0].message
         tool_calls = list(getattr(message, "tool_calls", None) or [])
         if not tool_calls:
-            content = getattr(message, "content", None) or ""
-            if content.lstrip().startswith(("{", "```json", "```")):
-                content = ""
             return messages, max_tokens, {
                 "source": "model_tool_calling",
                 "toolCount": 0,
                 "requestedTools": [],
                 "tools": [],
-            }, content or None
+            }, None
 
         planning_messages.append({
             "role": "assistant",
@@ -1988,6 +2187,7 @@ class EnhancedChatAgent:
         """根据持久化心理模型构建紧凑的提示词上下文。"""
         profile = self.personalization_profile or {}
         lines = []
+        context_blocks = []
 
         name = profile.get("preferred_name")
         if name:
@@ -2018,15 +2218,22 @@ class EnhancedChatAgent:
         if last_emotion:
             lines.append(f"- 上次主要情绪：{last_emotion}，强度 {profile.get('last_severity', 0)}/10")
 
-        if not lines and not self.memory_core:
+        if lines or self.memory_core:
+            instruction = (
+                "[用户心理模型] 以下信息来自该用户过往对话的长期心理模型，只用于提升个性化陪伴质量。"
+                "回应时要自然使用这些线索：优先承接用户当前原话；可以记住称呼、近期关注、偏好和已尝试方式；"
+                "不要直接说“根据你的心理模型/档案”；不要把模型内容机械复述给用户；如果当前用户原话与模型冲突，以当前原话为准。"
+            )
+            context_blocks.append(instruction + "\n" + "\n".join(lines))
+
+        cohort_context = get_cohort_learning_context(current_user_id=self.user_id)
+        if cohort_context:
+            context_blocks.append(cohort_context)
+
+        if not context_blocks:
             return ""
 
-        instruction = (
-            "[用户心理模型] 以下信息来自该用户过往对话的长期心理模型，只用于提升个性化陪伴质量。"
-            "回应时要自然使用这些线索：优先承接用户当前原话；可以记住称呼、近期关注、偏好和已尝试方式；"
-            "不要直接说“根据你的心理模型/档案”；不要把模型内容机械复述给用户；如果当前用户原话与模型冲突，以当前原话为准。"
-        )
-        return instruction + "\n" + "\n".join(lines)
+        return "\n\n".join(context_blocks)
 
     def _build_crisis_assessment_context(self) -> str:
         """为语义安全评估构建紧凑的用户个性化上下文。"""
@@ -2152,6 +2359,13 @@ class EnhancedChatAgent:
     def _load_user_state(self, filename: str = "user_state.json"):
         """加载用户状态（如骨髓移植分期）"""
         try:
+            if database_storage_enabled() and self.user_id:
+                data = get_database_repository().load_user_state(str(self.user_id))
+                if isinstance(data, dict):
+                    self.user_state.update(data)
+                return
+            if database_storage_enabled():
+                return
             filepath = self._get_psych_filepath(filename)
             if not os.path.exists(filepath):
                 return
@@ -2165,6 +2379,14 @@ class EnhancedChatAgent:
     def _save_user_state(self, filename: str = "user_state.json"):
         """保存用户状态（如骨髓移植分期）"""
         try:
+            if database_storage_enabled() and self.user_id:
+                get_database_repository().save_user_state(
+                    user_id=str(self.user_id),
+                    safe_user_id=self._safe_storage_user_id(),
+                    state=dict(self.user_state or {}),
+                    psych_model_dir=self.psych_model_dir,
+                )
+                return
             self._write_json_atomic(self._get_psych_filepath(filename), self.user_state)
         except Exception as e:
             logger.exception("保存用户状态失败")
@@ -2173,6 +2395,30 @@ class EnhancedChatAgent:
         """加载用户级长期心理模型。"""
         try:
             if not self.psych_model_enabled:
+                return
+            if database_storage_enabled() and self.user_id:
+                data = get_database_repository().load_psych_model(str(self.user_id))
+                if isinstance(data, dict):
+                    profile = data.get("cbt_user_profile")
+                    if isinstance(profile, dict):
+                        self.cbt_module.user_profile.update(profile)
+
+                    personalization = data.get("personalization_profile")
+                    if isinstance(personalization, dict):
+                        self.personalization_profile = {
+                            **self._default_personalization_profile(),
+                            **personalization,
+                        }
+
+                    user_state = data.get("user_state")
+                    if isinstance(user_state, dict):
+                        self.user_state.update(user_state)
+
+                    memory_core = data.get("memory_core")
+                    if memory_core is None or isinstance(memory_core, str):
+                        self.memory_core = memory_core
+                    return
+            if database_storage_enabled():
                 return
             filepath = self._get_psych_filepath(filename)
             if not os.path.exists(filepath):
@@ -2226,7 +2472,17 @@ class EnhancedChatAgent:
         }
         try:
             with self._psych_model_lock:
-                self._write_json_atomic(self._get_psych_filepath(filename), data)
+                if database_storage_enabled() and self.user_id:
+                    get_database_repository().save_psych_model(
+                        user_id=str(self.user_id),
+                        safe_user_id=self._safe_storage_user_id(),
+                        psych_model=data,
+                        psych_model_dir=self.psych_model_dir,
+                    )
+                else:
+                    self._write_json_atomic(self._get_psych_filepath(filename), data)
+            if filename == self.PSYCH_MODEL_FILENAME:
+                mark_cohort_learning_dirty()
         except Exception:
             logger.exception("保存用户心理模型失败")
 
@@ -2261,8 +2517,28 @@ class EnhancedChatAgent:
         return self.crisis_module.get_grounding_exercise()
 
     def load_history(self, filename: str = "chat_history.json"):
-        """从文件加载对话历史"""
+        """从当前存储后端加载对话历史。"""
         try:
+            if database_storage_enabled():
+                history = None
+                session_id = getattr(self, "storage_session_id", None)
+                if session_id:
+                    history = get_database_repository().load_session_history(str(session_id))
+                elif self.user_id and getattr(self, "storage_source", None):
+                    payload = get_database_repository().load_user_conversations(
+                        str(self.user_id),
+                        include_history=True,
+                    )
+                    source = str(getattr(self, "storage_source", None) or "cli")
+                    conversation_id = str(getattr(self, "storage_conversation_id", None) or source)
+                    for item in payload.get("conversations") or []:
+                        if item.get("source") == source and str(item.get("conversationId")) == conversation_id:
+                            history = item.get("history")
+                            break
+                if isinstance(history, list):
+                    self.conversation_history = history
+                    return
+                return
             filepath = self._get_filepath(filename)
             with open(filepath, 'r', encoding='utf-8') as f:
                 self.conversation_history = json.load(f)
@@ -2295,12 +2571,31 @@ class EnhancedChatAgent:
 
         # 5. 重新初始化能量模型（重置所有进度）
         self.energy_model = PsychologicalEnergyModel(data_dir=self.psych_model_dir)
+        self.energy_model.user_id = self.user_id
+        self.energy_model.safe_user_id = self._safe_storage_user_id()
+        self.energy_model.psych_model_dir = self.psych_model_dir
 
         # 6. 重新初始化危机干预模块（重置危机历史）
         self.crisis_module = CrisisInterventionModule(
             alert_callback=self._crisis_alert_callback,
             data_dir=self.psych_model_dir,
         )
+        self.crisis_module.user_id = self.user_id
+        self.crisis_module.safe_user_id = self._safe_storage_user_id()
+        self.crisis_module.psych_model_dir = self.psych_model_dir
+
+        if database_storage_enabled():
+            repo = get_database_repository()
+            session_id = getattr(self, "storage_session_id", None)
+            if session_id:
+                repo.clear_session_runtime(str(session_id))
+            if self.user_id:
+                repo.clear_user_runtime(str(self.user_id))
+            return {
+                "success": True,
+                "deleted_files": [],
+                "message": "所有数据已在数据库中重置，系统已恢复到初始状态"
+            }
 
         # 7. 删除所有持久化文件
         files_to_delete = [
@@ -2335,17 +2630,21 @@ class EnhancedChatAgent:
         """获取文件的完整路径（统一放在当前 agent 的数据目录下）"""
         if os.path.isabs(filename):
             return filename
-        os.makedirs(self.data_dir, exist_ok=True)
+        if not database_storage_enabled():
+            os.makedirs(self.data_dir, exist_ok=True)
         return os.path.join(self.data_dir, filename)
 
     def _get_psych_filepath(self, filename: str) -> str:
         """获取用户级心理模型文件路径。"""
         if os.path.isabs(filename):
             return filename
-        os.makedirs(self.psych_model_dir, exist_ok=True)
+        if not database_storage_enabled():
+            os.makedirs(self.psych_model_dir, exist_ok=True)
         return os.path.join(self.psych_model_dir, filename)
 
     def _write_json_atomic(self, filepath: str, data: Any) -> None:
+        if database_storage_enabled():
+            return
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
         temp_path = f"{filepath}.{os.getpid()}.{threading.get_ident()}.tmp"
         with open(temp_path, "w", encoding="utf-8") as f:

@@ -7,6 +7,7 @@ import json
 import os
 from datetime import datetime
 from xiaoya_agent.config import Config
+from xiaoya_agent.database import database_storage_enabled, get_database_repository
 from xiaoya_agent.keywords.library import (
     ENERGY_COGNITIVE_INDICATORS,
     ENERGY_COGNITIVE_DEEPENING_KEYWORDS,
@@ -1066,6 +1067,17 @@ class PsychologicalEnergyModel:
         # 序列化数据以确保所有对象都能被 JSON 序列化
         serialized_data = self._serialize_data(data)
 
+        user_id = getattr(self, "user_id", None)
+        if database_storage_enabled():
+            if user_id:
+                get_database_repository().save_energy_progress(
+                    user_id=str(user_id),
+                    safe_user_id=str(getattr(self, "safe_user_id", None) or user_id),
+                    data=serialized_data,
+                    psych_model_dir=str(getattr(self, "psych_model_dir", "") or self.data_dir),
+                )
+            return
+
         filepath = self._get_filepath(filename)
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(serialized_data, f, ensure_ascii=False, indent=2)
@@ -1073,6 +1085,28 @@ class PsychologicalEnergyModel:
     def load_progress(self, filename: str = "energy_progress.json"):
         """加载能量进度"""
         try:
+            user_id = getattr(self, "user_id", None)
+            if database_storage_enabled():
+                if user_id:
+                    data = get_database_repository().load_energy_progress(str(user_id))
+                    if isinstance(data, dict):
+                        self.total_energy = data.get("total_energy", 0)
+                        self.dimension_scores = data.get("dimension_scores", self.dimension_scores)
+                        self.session_history = data.get("session_history", [])
+                        self.achievements = data.get("achievements", [])
+                        self.energy_trends = data.get("energy_trends", [])
+                        loaded_counters = data.get("achievement_counters", {})
+                        if loaded_counters:
+                            self.achievement_counters.update(loaded_counters)
+                            if "dimension_milestones" not in self.achievement_counters:
+                                self.achievement_counters["dimension_milestones"] = {
+                                    EnergyDimension.COGNITIVE: 0,
+                                    EnergyDimension.EMOTIONAL: 0,
+                                    EnergyDimension.BEHAVIORAL: 0,
+                                    EnergyDimension.SOCIAL: 0,
+                                    EnergyDimension.SELF_EFFICACY: 0
+                                }
+                return
             filepath = self._get_filepath(filename)
             with open(filepath, 'r', encoding='utf-8') as f:
                 data = json.load(f)
@@ -1105,5 +1139,6 @@ class PsychologicalEnergyModel:
         """获取文件的完整路径（统一放在配置的数据目录下）"""
         if os.path.isabs(filename):
             return filename
-        os.makedirs(self.data_dir, exist_ok=True)
+        if not database_storage_enabled():
+            os.makedirs(self.data_dir, exist_ok=True)
         return os.path.join(self.data_dir, filename)

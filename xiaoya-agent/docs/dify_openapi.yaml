@@ -184,6 +184,43 @@ paths:
             application/json:
               schema:
                 type: object
+  /v1/dify/harbor:
+    post:
+      operationId: getXiaoyaDifyHarbor
+      summary: Start a Heart Harbor bedside regulation practice
+      description: |
+        Returns a scenario-classified lightweight practice for anxiety, fear,
+        insomnia, pain, emotional overwhelm, or daily relaxation. The result is
+        suitable for Dify cards or Answer nodes and includes voice guidance text.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DifyHarborRequest"
+            examples:
+              anxietyBreathing:
+                value:
+                  conversation_id: "dify-conv-001"
+                  user: "patient-001"
+                  query: "我现在很焦虑，想做一分钟呼吸"
+                  inputs:
+                    scenario: "焦虑"
+                    toolType: "呼吸"
+                    durationSeconds: 60
+      responses:
+        "200":
+          description: Heart Harbor practice for Dify display
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DifyHarborResponse"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 components:
   schemas:
     DifyChatRequest:
@@ -256,6 +293,17 @@ components:
           type: object
           additionalProperties: true
           description: Dify workflow inputs. stage, psychEnergy, userId, sessionId, patientContext, promptConfig, responseStyle, and workflowContext are supported.
+          properties:
+            scenario:
+              type: string
+              description: Optional Heart Harbor scene, such as 焦虑、恐惧、失眠、疼痛、崩溃、放松.
+            toolType:
+              type: string
+              description: Optional Heart Harbor tool, such as 呼吸、正念、冥想、音乐、肌肉、54321.
+            durationSeconds:
+              type: integer
+              enum: [30, 60, 120, 180, 300]
+              description: Optional Heart Harbor duration.
     DifyChatResponse:
       type: object
       properties:
@@ -312,6 +360,70 @@ components:
             question4:
               type: string
             sessionTitle:
+              type: string
+    DifyHarborRequest:
+      type: object
+      additionalProperties: true
+      properties:
+        query:
+          type: string
+          description: User text used to infer Heart Harbor scene and tool.
+        message:
+          type: string
+          description: Alias of query.
+        conversation_id:
+          type: string
+          description: Dify conversation id mapped to Xiaoya sessionId.
+        user:
+          type: string
+          description: Dify user id mapped to Xiaoya userId.
+        scenario:
+          type: string
+          description: Scene name or key, such as anxiety, fear, insomnia, pain, overwhelm, daily_relax.
+        toolType:
+          type: string
+          description: Tool name or key, such as breathing_regulation, mindfulness_guidance, meditation, music_relaxation, progressive_muscle_relaxation, grounding_54321.
+        durationSeconds:
+          type: integer
+          enum: [30, 60, 120, 180, 300]
+        mode:
+          type: string
+          enum: [voice, text]
+          default: voice
+        inputs:
+          type: object
+          additionalProperties: true
+          description: Dify workflow inputs. scenario, toolType, durationSeconds, mode, userId, and sessionId are supported.
+    DifyHarborResponse:
+      type: object
+      properties:
+        difyOutputs:
+          type: object
+          additionalProperties: true
+          properties:
+            practice:
+              type: object
+              additionalProperties: true
+            guideText:
+              type: string
+            displayText:
+              type: string
+            title:
+              type: string
+            scenario:
+              type: string
+            toolType:
+              type: string
+            durationSeconds:
+              type: integer
+            nextAction:
+              type: string
+              enum: [show_harbor_practice]
+            sessionId:
+              type: string
+            userId:
+              type: string
+            threadId:
               type: string
     ErrorResponse:
       type: object

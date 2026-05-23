@@ -11,6 +11,11 @@ from langchain_core.tools import tool
 from xiaoya_agent.config import Config
 from xiaoya_agent.keywords.library import MEDICAL_RED_FLAG_KEYWORDS, contains_any
 from xiaoya_agent.mcp_services import invoke_mcp_services, should_use_mcp_services
+from xiaoya_agent.features.harbor import (
+    build_harbor_context,
+    create_harbor_practice,
+    should_use_harbor_regulation,
+)
 from xiaoya_agent.retrieval.rag import retrieve_knowledge
 from xiaoya_agent.domain.transplant import (
     Scenario,
@@ -192,6 +197,28 @@ def mcp_service_router(query: str) -> Dict[str, Any]:
     return invoke_mcp_services(query)
 
 
+@tool
+def harbor_regulation_tool(
+    query: str,
+    scenario: str = "",
+    tool_type: str = "",
+    duration_seconds: int = 0,
+) -> Dict[str, Any]:
+    """生成“心之港湾”床旁轻量心理调节练习脚本。"""
+    practice = create_harbor_practice(
+        scenario=scenario,
+        tool_type=tool_type,
+        duration_seconds=duration_seconds or None,
+        query=query,
+        mode="voice",
+    )
+    return {
+        "practice": practice,
+        "context": build_harbor_context(practice),
+        "source": "local_tool",
+    }
+
+
 def get_agent_tools():
     """返回图编排使用的工具注册表。"""
     return [
@@ -200,6 +227,7 @@ def get_agent_tools():
         conversation_state_snapshot,
         knowledge_retrieval,
         mcp_service_router,
+        harbor_regulation_tool,
     ]
 
 
@@ -247,6 +275,41 @@ def get_model_tool_definitions() -> List[Dict[str, Any]]:
                         "query": {
                             "type": "string",
                             "description": "用户关于当前时间、日期等实时事实的问题。",
+                        },
+                    },
+                    "required": ["query"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "harbor_regulation_tool",
+                "description": (
+                    "当用户希望做心之港湾、正念、冥想、音乐放松、呼吸调节、肌肉放松、54321接地练习，"
+                    "或表达焦虑、恐惧、失眠、疼痛、情绪崩溃且需要一个床旁可完成的轻量练习时调用。"
+                    "返回 30 秒到 5 分钟的语音引导脚本；不调用大模型。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "用户原话或练习需求。",
+                        },
+                        "scenario": {
+                            "type": "string",
+                            "description": "可选场景：anxiety、fear、insomnia、pain、overwhelm、daily_relax，或中文场景名。",
+                        },
+                        "tool_type": {
+                            "type": "string",
+                            "description": "可选工具类型：mindfulness_guidance、meditation、music_relaxation、breathing_regulation、progressive_muscle_relaxation、grounding_54321，或中文工具名。",
+                        },
+                        "duration_seconds": {
+                            "type": "integer",
+                            "description": "练习时长，支持 30 到 300 秒，系统会自动取最近档位。",
+                            "minimum": 30,
+                            "maximum": 300,
                         },
                     },
                     "required": ["query"],
@@ -361,6 +424,14 @@ def execute_model_tool_call(
     if tool_name == "mcp_service_router":
         return mcp_service_router.invoke({"query": arguments.get("query") or user_message})
 
+    if tool_name == "harbor_regulation_tool":
+        return harbor_regulation_tool.invoke({
+            "query": arguments.get("query") or user_message,
+            "scenario": arguments.get("scenario") or "",
+            "tool_type": arguments.get("tool_type") or arguments.get("toolType") or "",
+            "duration_seconds": int(arguments.get("duration_seconds") or arguments.get("durationSeconds") or 0),
+        })
+
     if tool_name == "transplant_context_lookup":
         current_phase = arguments.get("current_phase")
         if not current_phase and agent is not None:
@@ -443,6 +514,15 @@ def summarize_tool_output(
             "hasContext": bool(result.get("context")),
             "reason": result.get("reason"),
         })
+    elif tool_name == "harbor_regulation_tool":
+        practice = result.get("practice") or {}
+        summary.update({
+            "practiceId": practice.get("practiceId"),
+            "scenario": (practice.get("scenario") or {}).get("key"),
+            "toolType": (practice.get("toolType") or {}).get("key"),
+            "durationSeconds": practice.get("durationSeconds"),
+            "hasContext": bool(result.get("context")),
+        })
     elif tool_name == "transplant_context_lookup":
         summary.update({
             "shouldTrigger": bool(result.get("should_trigger")),
@@ -518,6 +598,15 @@ def invoke_turn_tools(
             "context": "",
             "reason": "auto_skipped",
         }
+    if should_use_harbor_regulation(user_message):
+        harbor_output = harbor_regulation_tool.invoke({"query": user_message})
+    else:
+        harbor_output = {
+            "practice": None,
+            "context": "",
+            "reason": "auto_skipped",
+            "source": "local_tool",
+        }
 
     return {
         "medical_red_flag_scan": medical_red_flag_scan.invoke({"text": user_message}),
@@ -533,6 +622,7 @@ def invoke_turn_tools(
         }),
         "knowledge_retrieval": knowledge_output,
         "mcp_service_router": mcp_output,
+        "harbor_regulation_tool": harbor_output,
     }
 
 
@@ -547,6 +637,7 @@ def build_response_context_from_tool_outputs(
     template = transplant_context.get("template") if transplant_context.get("should_trigger") else None
     knowledge = ((tool_outputs or {}).get("knowledge_retrieval") or {})
     mcp = ((tool_outputs or {}).get("mcp_service_router") or {})
+    harbor = ((tool_outputs or {}).get("harbor_regulation_tool") or {})
 
     return {
         "phase": phase,
@@ -554,6 +645,8 @@ def build_response_context_from_tool_outputs(
         "template": template if scenario else None,
         "mcp_context": mcp.get("context", ""),
         "mcp_services": mcp.get("services", []),
+        "harbor_context": harbor.get("context", ""),
+        "harbor_practice": harbor.get("practice"),
         "knowledge_context": knowledge.get("context", ""),
         "knowledge_matches": knowledge.get("matches", []),
         "knowledge_backend": knowledge.get("retrievalBackend"),

@@ -13,13 +13,14 @@
 | CBT 支持 | 默认流式主流程不使用本地关键词/规则触发 CBT；主回复模型按用户原话语义决定是否自然融入轻量 CBT，后台统一语义分析再补充结构化结果 |
 | 危机判断 | 默认不阻塞首 token；主回复后由后台 LLM 结合用户长期心理模型做语义危机判断，本地身体红旗关键词仅作为可选兜底 |
 | 心理能量 | 后台统一语义分析输出五个维度的成长评分，再由本地能量模型负责累计、等级和成就 |
+| 心之港湾 | 提供正念引导、冥想训练、音乐放松、呼吸调节、肌肉渐进放松、54321 接地练习；按焦虑、恐惧、失眠、疼痛、情绪崩溃和日常放松分类，支持 30 秒到 5 分钟的床旁语音引导 |
 | 记忆中枢 | 每轮后异步生成/更新摘要，下一轮只传系统提示、记忆摘要和当前问题 |
-| API 会话隔离 | 每个 `sessionId` 独立持久化到 `data/sessions/<safe_session_id>` |
-| 用户心理模型隔离 | API 可传 `userId` 或 `patientId`，每个用户独立持久化到 `data/users/<safe_user_id>`，同一用户跨会话继承心理状态，不同用户互不污染 |
+| API 会话隔离 | 每个 `sessionId` 独立持久化到 MySQL 的 `xiaoya_sessions`、`xiaoya_session_states` 和 `xiaoya_messages` |
+| 用户心理模型隔离 | API 可传 `userId` 或 `patientId`，每个用户独立持久化到 `xiaoya_users`，同一用户跨会话继承心理状态，不同用户互不污染 |
 | 会话运行时 | `xiaoya_agent/runtime/session.py` 统一管理 `sessionId -> threadId -> EnhancedChatAgent`，并提供列表、历史、重命名、自动命名和删除能力 |
 | 本地工具层 | `xiaoya_agent/tools/local_tools.py` 注册 LangGraph 可调用的本地工具，不增加额外 LLM 调用 |
 | MCP-style 服务层 | `xiaoya_agent/mcp_services/` 统一放置确定性服务；当前包含当前时间/日期服务，避免模型猜时间 |
-| Dify 接入 | 提供 `/v1/dify/chat`、`/v1/dify/context`、`/v1/dify/grounding`、`/v1/dify/recommendations` 和 `docs/dify_openapi.yaml`，方便在 Dify Chatflow/Workflow 中作为自定义工具调用，内部仍走 LangGraph |
+| Dify 接入 | 提供 `/v1/dify/chat`、`/v1/dify/context`、`/v1/dify/grounding`、`/v1/dify/harbor`、`/v1/dify/recommendations` 和 `docs/dify_openapi.yaml`，方便在 Dify Chatflow/Workflow 中作为自定义工具调用，内部仍走 LangGraph |
 | 模型工具调用 | 非流式 `chat()` 路径可让模型按需调用本地工具，流式主路径仍不让模型工具调用阻塞首 token |
 | RAG 检索 | 运行时只调用 Dify Knowledge Base；`File/` 仅作为项目参考资料，不参与 RAG，也不会作为失败兜底 |
 | 输出格式 | CLI/API 共用 `xiaoya_agent/utils/formatting.py`，减少 Markdown 符号进入终端或客户端 |
@@ -48,6 +49,7 @@ Xiaoya/
 │  │  ├─ features/cbt.py       # CBT 分析与引导
 │  │  ├─ features/crisis.py    # 危机语义判断、关键词兜底和报警记录
 │  │  ├─ features/energy.py    # 心理能量评估与成就系统
+│  │  ├─ features/harbor.py    # 心之港湾：轻量床旁心理调节工具库
 │  │  ├─ domain/transplant.py  # 骨髓移植分期与场景话术
 │  │  ├─ keywords/library.py   # 关键词、场景标签、情绪标签
 │  │  ├─ utils/formatting.py   # 共享输出清洗工具
@@ -56,11 +58,12 @@ Xiaoya/
 │     └─ test_agent.py         # 综合测试
 ├─ File/                       # 项目参考资料，不参与运行时 RAG
 ├─ docs/
-│  └─ dify_openapi.yaml        # Dify 自定义工具 OpenAPI 描述
-├─ data/                       # 运行数据，默认忽略提交
+│  ├─ dify_openapi.yaml        # Dify 自定义工具 OpenAPI 描述
+│  ├─ 详细设计文档.md           # 接口、功能流程和模块划分
+│  └─ 数据库设计文档.md         # 表结构、索引、关系和数据字典
+├─ data/                       # 旧 JSON 迁移来源；MySQL 模式不写用户运行时数据
 ├─ config.env                  # 本地开发配置
 ├─ config.env.example          # 配置模板
-├─ 小芽项目技术说明文档.docx     # 面向技术人员的完整说明文档
 └─ requirements.txt
 ```
 
@@ -93,13 +96,36 @@ MODEL_NAME=deepseek-chat
 DATA_DIR=data
 ```
 
+用户历史、用户对话、心理模型、能量进度和危机记录默认建议存到 MySQL。保持 `STORAGE_BACKEND=mysql`，并填写连接信息：
+
+```env
+STORAGE_BACKEND=mysql
+MYSQL_HOST=127.0.0.1
+MYSQL_PORT=3306
+MYSQL_USER=xiaoya_user
+MYSQL_PASSWORD=your_mysql_password
+MYSQL_DATABASE=xiaoya
+DATABASE_AUTO_INIT=true
+DATABASE_TABLE_PREFIX=xiaoya_
+```
+
+也可以用一行连接串：`DATABASE_URL=mysql+pymysql://xiaoya_user:password@127.0.0.1:3306/xiaoya?charset=utf8mb4`。数据库代码集中在 `Code/xiaoya_agent/database/`，业务层只调用仓储接口，不直接写 SQL。
+
+已有的本地 JSON 数据可以在配置好 MySQL 后导入一次：
+
+```powershell
+$env:PYTHONPATH="Code"; python -m xiaoya_agent.database.migrate_local_json
+```
+
 开发阶段可以把真实 API key 写在 `config.env` 中。正式部署时建议改为部署平台的环境变量或密钥管理服务。
 
 ### 3. 启动命令行项目
 
 ```powershell
-python Code\main.py
+.\start.bat
 ```
+
+`start.bat` 会自动使用 `.venv`，在 `STORAGE_BACKEND=mysql` 时尝试启动 MySQL 服务，并在进入 CLI 前检查数据库连接。需要绕过脚本时也可以直接执行 `python Code\main.py`。
 
 可用命令：
 
@@ -110,9 +136,11 @@ python Code\main.py
 | `energy` | 查看心理能量报告 |
 | `progress` | 查看综合进度报告 |
 | `grounding` | 获取 5-4-3-2-1 正念落地练习 |
+| `harbor` | 查看心之港湾工具目录 |
+| `harbor <场景> [秒数] [工具]` | 启动一次床旁放松练习，例如 `harbor 焦虑 60 呼吸` 或 `harbor 失眠 180 冥想` |
 | `save` | 手动保存进度 |
 | `load` | 加载历史数据 |
-| `user` | 查看当前命令行用户和对应数据目录 |
+| `user` | 查看当前命令行用户和存储后端 |
 | `user <id>` | 切换到指定用户，自动保存当前用户并加载目标用户心理模型 |
 | `users` | 列出已有用户心理模型 |
 | `user-history [id]` | 查看某个用户统一管理的 API/CLI 会话历史索引 |
@@ -124,8 +152,10 @@ python Code\main.py
 ### 4. 启动 API 服务
 
 ```powershell
-python Code\api_server.py
+.\start_api.bat
 ```
+
+`start_api.bat` 会执行同样的 MySQL 服务启动和数据库连接检查，然后启动 `http://127.0.0.1:8001`。需要手工调试时也可以直接执行 `python Code\api_server.py`。
 
 健康检查：
 
@@ -159,6 +189,9 @@ curl.exe -N -X POST http://127.0.0.1:8001/v1/psych/chat `
 | `/v1/dify/recommendations` | `POST` | 给 Dify 分支/展示节点使用的推荐问题，返回 `question1` 到 `question4` |
 | `/v1/dify/context` | `POST` | 给 Dify 页面/变量节点读取当前会话、用户模型、能量和风险摘要 |
 | `/v1/dify/grounding` | `POST` | 给 Dify 页面展示 5-4-3-2-1 正念接地练习 |
+| `/v1/dify/harbor` | `POST` | 给 Dify 页面展示心之港湾床旁调节练习，返回语音引导词和结构化练习信息 |
+| `/v1/harbor/catalog` | `GET` | 查看心之港湾支持的场景、工具和时长 |
+| `/v1/harbor/start` | `POST` | 按场景、工具和时长生成一次心之港湾练习，不写入会话 |
 | `/v1/mcp/services` | `GET` | 查看当前可用的 MCP-style 确定性服务 |
 | `/v1/mcp/invoke` | `GET/POST` | 直接调试 MCP-style 服务，例如当前时间服务 |
 | `/v1/psych/recommendations` | `POST` | 根据阶段、能量和情绪生成推荐提问 |
@@ -169,6 +202,8 @@ curl.exe -N -X POST http://127.0.0.1:8001/v1/psych/chat `
 | `/v1/users/<userId>/psych-model` | `GET` | 查看某个用户已经保存到磁盘的长期心理模型 |
 | `/v1/users/<userId>/conversations` | `GET` | 查看某个用户统一管理的 API/CLI 会话历史索引 |
 | `/v1/users/<userId>` | `DELETE` | 删除用户心理模型、统一历史索引和关联 API/CLI 会话 |
+| `/v1/cohort-learning` | `GET` | 查看匿名群体学习模型，即跨用户心理模型聚合出的共性洞察 |
+| `/v1/cohort-learning/rebuild` | `POST` | 强制重建匿名群体学习模型 |
 | `/v1/capabilities` | `GET` | 查看当前服务暴露的用户功能接口清单 |
 | `/health` | `GET` | 服务健康检查 |
 
@@ -210,10 +245,11 @@ Dify 工作流中建议传入这些字段：
 | `difyOutputs.sessionTitle` | Dify 会话列表或卡片展示 |
 | `difyOutputs.crisisLevel` / `shouldNotify` | Dify 外层流程决定是否展示报警组件 |
 | `difyOutputs.retrievalBackend` / `knowledgeMatchCount` | Dify 调试知识库是否接管 RAG |
+| `difyOutputs.practice` / `guideText` | `/v1/dify/harbor` 返回的心之港湾练习结构和可直接播放/展示的语音引导词 |
 
 `/v1/dify/options` 用来告诉 Dify 当前可传入哪些变量，包括 `stage`、`psychEnergy`、`promptProfile`、`outputMode`、`responseStyle`、`workflowContext` 等。`responseStyle` 和 `workflowContext` 会被后端转成 `extraInstructions`，等于把简单风格选择和前置流程上下文交给 Dify 管。
 
-`/v1/dify/context` 用来替代前端直接读多个后端接口的做法。Dify 只要传 `conversation_id` 和 `user`，就能拿到 `sessionTitle`、`messageCount`、`stage`、`preferredName`、`mainConcerns`、`supportPreferences`、`energyReport`、`crisisReport` 等紧凑上下文。`/v1/dify/grounding` 则把接地练习包装成 `difyOutputs.exercise`，适合在 Dify 的卡片或回答节点中展示。
+`/v1/dify/context` 用来替代前端直接读多个后端接口的做法。Dify 只要传 `conversation_id` 和 `user`，就能拿到 `sessionTitle`、`messageCount`、`stage`、`preferredName`、`mainConcerns`、`supportPreferences`、`energyReport`、`crisisReport` 等紧凑上下文。`/v1/dify/grounding` 会把接地练习包装成 `difyOutputs.exercise`；`/v1/dify/harbor` 会把正念、冥想、音乐放松、呼吸调节、肌肉渐进放松和 54321 接地练习包装成 `difyOutputs.practice` 与 `difyOutputs.guideText`，适合在 Dify 的卡片、Answer 节点或语音播放节点中展示。
 
 可以由 Dify 替换的功能已经做成可配置项：
 
@@ -224,9 +260,10 @@ Dify 工作流中建议传入这些字段：
 | 提示词和变量编排 | 本地 `promptConfig`、提示词 registry、版本 diff | Dify Chatflow 可把 profile、outputMode、extraInstructions、stage、psychEnergy 作为工具输入传给 `/v1/dify/chat` |
 | 推荐问题展示 | API 返回 `recommendedQuestions` 后由前端自行展示 | Dify 读取 `difyOutputs.question1` 到 `question4` 或调用 `/v1/dify/recommendations` |
 | 简单流程分支 | 前端或业务代码读取危机/推荐字段判断 | Dify 读取 `difyOutputs.nextAction`、`shouldNotify`、`crisisLevel` 做 IF/ELSE |
-| 会话展示信息 | 后端 `session_meta.json` 维护 title/messageCount | Dify 读取 `difyOutputs.sessionTitle`、`messageCount` 做外层展示 |
+| 会话展示信息 | 后端会话元数据维护 title/messageCount；MySQL 模式写入 `xiaoya_sessions` | Dify 读取 `difyOutputs.sessionTitle`、`messageCount` 做外层展示 |
 | 用户/会话上下文展示 | 前端分别查 session、psych-model、energy、crisis | Dify 调 `/v1/dify/context` 一次拿紧凑上下文 |
 | 正念接地练习展示 | 前端调 `/v1/sessions/<id>/grounding` | Dify 调 `/v1/dify/grounding` 直接展示 `difyOutputs.exercise` |
+| 心之港湾练习展示 | 前端调 `/v1/harbor/start` 或 `/v1/sessions/<id>/harbor` | Dify 调 `/v1/dify/harbor`，按场景展示 `practice`、`guideText`、时长和一键启动动作 |
 
 暂时不建议由 Dify 替换的部分包括：危机分级与报警、用户长期心理模型、心理能量累计、会话状态持久化和 LangGraph 节点编排。这些部分与医疗安全、个性化和本地数据一致性强绑定，继续留在 Python/LangGraph 里更稳。
 
@@ -329,6 +366,7 @@ curl.exe -X POST http://127.0.0.1:8001/v1/knowledge/search `
 | 单独生成推荐问题 | `POST /v1/dify/recommendations` |
 | 读取紧凑会话/用户上下文 | `POST /v1/dify/context` |
 | 读取正念接地练习 | `POST /v1/dify/grounding` |
+| 读取心之港湾练习 | `POST /v1/dify/harbor` |
 | 调试知识召回 | `GET/POST /v1/knowledge/search` |
 
 ## 主流程
@@ -370,29 +408,31 @@ API 会话运行时集中在 `Code/xiaoya_agent/runtime/session.py`：
 
 | 对象/函数 | 作用 |
 |---|---|
-| `SessionManager` | 保存单个会话的 `session_id`、`user_id`、`thread_id`、`data_dir`、`psych_model_dir`、`agent`、锁和最后访问时间 |
-| `get_or_create_session()` | 根据 `sessionId` 和可选 `userId` 获取或创建会话；会话目录映射到 `data/sessions/<safe_session_id>`，用户心理模型目录映射到 `data/users/<safe_user_id>` |
+| `SessionManager` | 保存单个会话的 `session_id`、`user_id`、`thread_id`、兼容目录字段、`agent`、锁和最后访问时间 |
+| `get_or_create_session()` | 根据 `sessionId` 和可选 `userId` 获取或创建会话；MySQL 模式下会话映射到 `xiaoya_sessions`，用户模型映射到 `xiaoya_users` |
 | `prepare_session_for_chat()` | 每轮对话前同步患者阶段、重建外部历史、应用 `promptConfig`，并把 `thread_id` 写入 agent |
-| `update_session_after_chat()` | 每轮结束后更新 `session_meta.json`，记录标题、消息数、阶段和提示词版本 |
-| `list_session_summaries()` | 扫描 `data/sessions/` 并返回会话列表 |
-| `rename_session()` / `auto_name_session()` / `delete_session()` | 支持重命名、按首条用户消息自动命名和删除会话目录 |
-| `sync_user_conversation_history()` | 把 API 或 CLI 会话快照写入 `data/users/<safe_user_id>/conversations/`，并更新用户级 `conversation_index.json` |
+| `update_session_after_chat()` | 每轮结束后更新会话元数据，记录标题、消息数、阶段和提示词版本 |
+| `list_session_summaries()` | 从 `xiaoya_sessions` 返回会话列表 |
+| `rename_session()` / `auto_name_session()` / `delete_session()` | 支持重命名、按首条用户消息自动命名和删除会话 |
+| `sync_user_conversation_history()` | 把 API 或 CLI 会话快照写入 `xiaoya_conversations`，并维护用户级统一会话索引 |
 | `list_user_conversations()` / `delete_user()` | 查看某个用户的统一会话历史，或删除该用户及其关联会话 |
 | `build_thread_id()` | 将外部 `sessionId` 规范化为 LangGraph 可用的稳定 `thread_id` |
 
-当前仍保留 `EnhancedChatAgent` 的 JSON 持久化文件，包括 `chat_history.json`、`user_state.json`、`energy_progress.json` 和 `crisis_history.json`。每个 API 会话还会写入 `agent_state.json`，集中保存完整对话历史、记忆中枢、用户状态、提示词 profile/output mode 和最近工具轨迹；进程重启后会优先用它恢复 Agent。`agent_state.json` 在 `/v1/psych/chat` 的 `done` 事件返回前同步写入，并通过临时文件替换落盘，降低服务刚退出时丢最后一轮或留下半截 JSON 的风险。会话管理信息单独写入 `session_meta.json`，不污染聊天历史。`thread_id` 已经传入 LangGraph `graph.invoke(..., config={"configurable": {"thread_id": ...}})`，后续如果接入 LangGraph checkpointer 或 store，可以沿用这个标识，不需要改 API 入参。
+MySQL 模式下不再把用户运行时数据写入本地 JSON 文件。`EnhancedChatAgent` 的聊天历史、用户状态、心理能量、危机历史和长期心理模型分别写入 `xiaoya_messages`、`xiaoya_session_states`、`xiaoya_users` 和 `xiaoya_conversations`。`thread_id` 已经传入 LangGraph `graph.invoke(..., config={"configurable": {"thread_id": ...}})`，后续如果接入 LangGraph checkpointer 或 store，可以沿用这个标识，不需要改 API 入参。
 
-用户心理模型与会话状态分开保存。API 请求可以在顶层传 `userId` / `patientId`，也可以放在 `patientContext.userId` / `patientContext.patientId`；如果不传，开发阶段默认用 `sessionId` 作为用户标识。系统会把用户模型写入 `data/users/<safe_user_id>/`，其中包括 `psych_model.json`、`user_state.json`、`energy_progress.json`、`crisis_history.json`、`conversation_index.json` 和 `conversations/`。同一个 `userId` 打开多个不同 `sessionId` 时，会共享长期记忆摘要、移植分期、CBT 用户画像、心理能量和危机历史；不同 `userId` 的目录完全隔离。`agent_state.json` 仍保留会话快照和兼容字段，但 API 恢复会话时不会再用旧会话快照覆盖用户心理模型。
+用户心理模型与会话状态分开保存。API 请求可以在顶层传 `userId` / `patientId`，也可以放在 `patientContext.userId` / `patientContext.patientId`；如果不传，开发阶段默认用 `sessionId` 作为用户标识。同一个 `userId` 打开多个不同 `sessionId` 时，会共享长期记忆摘要、移植分期、CBT 用户画像、心理能量和危机历史；不同 `userId` 在 `xiaoya_users.user_key` 层面完全隔离。
 
-用户的对话历史现在有一个统一管理入口：API 会话和 CLI 会话都会同步一份快照到 `data/users/<safe_user_id>/conversations/`，同时更新 `conversation_index.json`。`GET /v1/users/<userId>/conversations` 读取这个用户级索引；`DELETE /v1/users/<userId>` 会删除该用户的心理模型目录、统一历史索引、用户级会话快照，并清理该用户绑定的 API 会话目录和旧版 CLI 会话目录。
+用户的对话历史有统一管理入口：API 会话和 CLI 会话都会同步一份快照到 `xiaoya_conversations`。`GET /v1/users/<userId>/conversations` 读取这个用户级索引；`DELETE /v1/users/<userId>` 会删除该用户心理模型、统一历史索引、用户级会话快照，并清理该用户绑定的 API/CLI 会话数据。
 
 `psych_model.json` 中的 `personalization_profile` 会随每轮对话更新，记录用户称呼、近期主要关注、常见情绪、认知模式、偏好的回应方式、已尝试或可能有效的支持方式和风险提示。主回复模型生成前会收到一个简短的 `[用户心理模型]` 系统上下文，用它自然调整称呼、语气、支持方式和关注点；回复中不会直接暴露“心理模型/档案”这些内部说法。如果当前用户原话和旧模型冲突，当前原话优先。
 
-查看心理模型时有两个入口：`GET /v1/sessions/<sessionId>/psych-model` 返回当前会话内存里的最新模型快照，适合调试一轮对话刚结束后的状态；`GET /v1/users/<userId>/psych-model` 读取 `data/users/<safe_user_id>/psych_model.json` 中已经落盘的长期模型，适合确认持久化结果。CLI 中可以输入 `psych-model` 或 `model` 查看当前切换用户的同一套模型字段。
+匿名群体学习模型会读取 `xiaoya_users.psych_model_json` 中已经结构化的心理模型字段，聚合多个骨髓移植患者的常见关注、情绪、认知模式、有效策略、支持偏好和风险提醒，写入 `xiaoya_cohort_models`。它不读取完整聊天原文，不保存单个用户 ID；默认至少 2 个用户、同一信号至少出现在 2 个用户中，才会把 `[骨髓移植患者群体经验]` 注入主回复提示词。这个上下文只作为轻量先验，当前用户原话和个人心理模型始终优先。
+
+查看心理模型时有两个入口：`GET /v1/sessions/<sessionId>/psych-model` 返回当前会话内存里的最新模型快照，适合调试一轮对话刚结束后的状态；`GET /v1/users/<userId>/psych-model` 读取 `xiaoya_users` 中已经落库的长期模型，适合确认持久化结果。CLI 中可以输入 `psych-model` 或 `model` 查看当前切换用户的同一套模型字段。
 
 同一个 `sessionId` 首次创建后会绑定到固定 `userId`。后续如果用另一个 `userId` 打开同一会话，系统会返回 `400 invalid_request`，避免一段会话历史被错误挂到另一个用户的心理模型上。
 
-外部 `sessionId` 会规范化成 `safeSessionId` 作为目录名和内存会话键。若两个不同的 `sessionId` 会映射到同一个 `safeSessionId`，系统会拒绝创建或读取，避免不同会话共用同一个 `data/sessions/<safe_session_id>` 目录。
+外部 `sessionId` 会规范化成 `safeSessionId`，并进一步生成稳定的 `session_key`。若两个不同的 `sessionId` 会映射到同一个安全标识，系统会拒绝创建或读取，避免不同会话共用同一条数据库记录。
 
 会话管理 API：
 
@@ -404,10 +444,10 @@ API 会话运行时集中在 `Code/xiaoya_agent/runtime/session.py`：
 | `POST /v1/sessions` | 创建会话元数据，可传 `sessionId`、`userId`/`patientId` 和 `title` |
 | `GET /v1/sessions/<sessionId>` | 获取单个会话元数据 |
 | `PATCH /v1/sessions/<sessionId>` | 重命名会话，body 传 `{"title": "..."}` |
-| `DELETE /v1/sessions/<sessionId>` | 删除会话目录和内存会话 |
+| `DELETE /v1/sessions/<sessionId>` | 删除会话数据和内存会话 |
 | `GET /v1/sessions/<sessionId>/history` | 获取会话历史，默认不返回 system 消息 |
 | `POST /v1/sessions/<sessionId>/auto-name` | 根据首条用户消息或传入 `message` 自动命名 |
-| `GET /v1/sessions/<sessionId>/state` | 查看当前会话运行态，包括 `userId`、`psychModelDir`、分期、提示词 profile、输出模式、消息数和最近工具轨迹 |
+| `GET /v1/sessions/<sessionId>/state` | 查看当前会话运行态，包括 `userId`、分期、提示词 profile、输出模式、消息数和最近工具轨迹 |
 | `GET /v1/sessions/<sessionId>/psych-model` | 查看当前会话内存中的完整用户心理模型快照，包含 `memory_core`、`personalization_profile`、`cbt_user_profile`、`energy_report`、`crisis_report` |
 | `PATCH /v1/sessions/<sessionId>/state` | 更新会话运行态，目前支持传 `phase` 或 `stage` 修改移植分期 |
 | `GET /v1/sessions/<sessionId>/phase` | 查看当前移植分期，可返回中文 `phase` 和英文 `stage` |
@@ -418,15 +458,17 @@ API 会话运行时集中在 `Code/xiaoya_agent/runtime/session.py`：
 | `GET /v1/sessions/<sessionId>/crisis-report` | 获取危机历史统计 |
 | `GET /v1/sessions/<sessionId>/grounding` | 获取 5-4-3-2-1 正念接地练习文本，不记录练习 |
 | `POST /v1/sessions/<sessionId>/grounding` | 获取并记录一次正念接地练习，可带 `{"record": true}` |
-| `POST /v1/sessions/<sessionId>/save` | 手动保存当前会话历史、用户状态、能量、危机记录和 `agent_state.json` |
+| `GET /v1/sessions/<sessionId>/harbor` | 查看心之港湾工具目录 |
+| `POST /v1/sessions/<sessionId>/harbor` | 生成并记录一次心之港湾练习，可传 `scenario`、`toolType`、`durationSeconds`、`query` 和 `record` |
+| `POST /v1/sessions/<sessionId>/save` | 手动保存当前会话历史、用户状态、能量、危机记录和状态快照 |
 | `POST /v1/sessions/<sessionId>/reset` | 重置该会话的对话、用户状态、能量进度、危机历史和状态快照 |
-| `GET /v1/users` | 查看已有用户、用户目录和统一会话数量 |
+| `GET /v1/users` | 查看已有用户和统一会话数量 |
 | `GET /v1/users/<userId>/psych-model` | 查看某个用户已经保存的长期心理模型，不要求当前进程中已有对应会话 |
 | `GET /v1/users/<userId>/conversations` | 查看某个用户统一管理的 API/CLI 会话索引；加 `?includeHistory=true` 可返回快照历史 |
 | `GET /v1/users/<userId>/history` | `conversations` 的别名 |
 | `DELETE /v1/users/<userId>` | 删除用户心理模型、统一历史索引和关联 API/CLI 会话 |
 
-注意：`DELETE /v1/sessions/<sessionId>` 只删除单个会话目录和该会话在用户统一索引中的快照，不删除 `data/users/<safe_user_id>/` 下的用户心理模型。`DELETE /v1/users/<userId>` 是用户级删除，会清掉用户目录和关联会话。`POST /v1/sessions/<sessionId>/reset` 会通过当前会话对应的 agent 重置该用户的心理模型数据，适合测试或明确需要清空该用户状态时使用。
+注意：`DELETE /v1/sessions/<sessionId>` 只删除单个会话数据和该会话在用户统一索引中的快照，不删除 `xiaoya_users` 中的用户心理模型。`DELETE /v1/users/<userId>` 是用户级删除，会清掉用户模型和关联会话。`POST /v1/sessions/<sessionId>/reset` 会通过当前会话对应的 agent 重置该用户的心理模型数据，适合测试或明确需要清空该用户状态时使用。
 
 ## 工具层
 
@@ -441,8 +483,9 @@ MCP-style 服务统一放在 `Code/xiaoya_agent/mcp_services/`。当前已有 `c
 | `transplant_context_lookup` | 根据文本、当前分期和情绪强度查找移植阶段、场景与模板素材 | 否 |
 | `knowledge_retrieval` | 从 Dify Knowledge Base 检索相关片段；`File/` 不作为 RAG 来源 | 会调用 Dify API |
 | `conversation_state_snapshot` | 记录本轮可观测的会话状态，如分期、历史长度、是否有记忆摘要 | 否 |
+| `harbor_regulation_tool` | 生成心之港湾床旁调节练习，覆盖正念、冥想、音乐放松、呼吸、肌肉渐进放松和 54321 接地 | 否 |
 
-`AGENT_TOOLS_ENABLED=true` 且 `AGENT_MODEL_TOOL_CALLING_ENABLED=true` 时，`python Code\main.py` 和 `/v1/psych/chat` 的默认流式主流程会把工具 schema 交给模型，由模型决定是否调用 `mcp_service_router`、`knowledge_retrieval`、`transplant_context_lookup`、`medical_red_flag_scan` 或 `conversation_state_snapshot`。
+`AGENT_TOOLS_ENABLED=true` 且 `AGENT_MODEL_TOOL_CALLING_ENABLED=true` 时，`python Code\main.py` 和 `/v1/psych/chat` 的默认流式主流程会把工具 schema 交给模型，由模型决定是否调用 `mcp_service_router`、`knowledge_retrieval`、`transplant_context_lookup`、`medical_red_flag_scan`、`conversation_state_snapshot` 或 `harbor_regulation_tool`。
 
 如果关闭 `AGENT_MODEL_TOOL_CALLING_ENABLED`，LangGraph 会退回到旧的本地预调用路径：系统先用轻量条件判断调用必要工具，再把工具上下文注入主回复提示词。这条路径只作为兼容兜底保留。
 
@@ -552,7 +595,7 @@ API 可按会话传入 `promptConfig` 覆盖配置：
 
 `promptConfig.systemPrompt` 也可以直接覆盖本会话的主系统提示词。接口会在 SSE `start` 和最终 `agentMeta` 中返回实际使用的 `promptProfile` 与 `outputMode`。
 
-提示词也可以通过 API 持久化更新。更新内容写入 `data/prompt_registry.json`，每次 `resolve_prompt_runtime_config()` 都会检查文件修改时间；文件变化后下一轮对话自动使用新版本，不需要重启 API 服务。每次更新都会递增版本号并写入历史记录，历史记录包含 `changeNote`、`metadata` 和 `diffFromPrevious`。候选提示词可以先走 preview 接口，不写入 registry，用同一条测试输入分别生成当前版和候选版输出；人工确认后再调用 PUT 保存为新版本。
+提示词也可以通过 API 持久化更新。MySQL 模式下更新内容写入 `xiaoya_prompt_registries`，下一轮对话会自动使用新版本，不需要重启 API 服务。旧的 `data/prompt_registry.json` 只作为一次性迁移来源或 JSON 兼容模式文件。每次更新都会递增版本号并写入历史记录，历史记录包含 `changeNote`、`metadata` 和 `diffFromPrevious`。候选提示词可以先走 preview 接口，不写入 registry，用同一条测试输入分别生成当前版和候选版输出；人工确认后再调用 PUT 保存为新版本。
 
 | 接口 | 作用 |
 |---|---|
@@ -571,7 +614,7 @@ API 可按会话传入 `promptConfig` 覆盖配置：
 | `DELETE /v1/prompts/output-modes/<mode>` | 删除自定义输出模式；内置输出模式会重置为内置默认值；加 `?purgeHistory=true` 可同时清空自定义历史 |
 | `GET /v1/prompts/compare?kind=profile&key=warm_cbt` | 默认比较当前版本和上一版本 |
 | `POST /v1/prompts/preview` | 通用候选提示词预览接口，body 传 `kind`、`key`、`candidateContent` |
-| `POST /v1/prompts/reload` | 清空内存缓存并重新读取 `prompt_registry.json` |
+| `POST /v1/prompts/reload` | 清空内存缓存并重新读取提示词注册表 |
 
 示例：
 
@@ -675,7 +718,8 @@ API 可按会话传入 `promptConfig` 覆盖配置：
     "sessionId": "session-001",
     "userId": "patient-001",
     "threadId": "session-001",
-    "psychModelDir": "data/users/patient-001",
+    "storageBackend": "mysql",
+    "psychModelDir": "mysql:xiaoya_users/patient-001",
     "psychModel": {
       "memoryCore": "用户近期主要担心移植失败和排异风险。",
       "personalizationProfile": {
@@ -707,7 +751,10 @@ API 可按会话传入 `promptConfig` 覆盖配置：
 | `API_BASE_URL` | `https://api.deepseek.com` | OpenAI 兼容接口地址 |
 | `API_KEY` | 空 | 模型调用密钥，运行前必须填写 |
 | `MODEL_NAME` | `deepseek-chat` | 主回复模型 |
-| `DATA_DIR` | `data` | 持久化数据目录，相对路径会按项目根目录解析 |
+| `DATA_DIR` | `data` | 旧 JSON 迁移来源和兼容模式目录；MySQL 模式不写用户运行时文件 |
+| `STORAGE_BACKEND` | `mysql` | 存储后端；当前建议使用 MySQL |
+| `MYSQL_SERVICE_NAME` | `MySQL` | Windows MySQL 服务名，启动脚本会用它尝试启动数据库 |
+| `DATABASE_TABLE_PREFIX` | `xiaoya_` | MySQL 表名前缀 |
 | `TEMPERATURE` | `0.7` | 主回复随机性 |
 | `MAX_TOKENS` | `1000` | 主回复最大 token |
 | `AGENT_GRAPH_ENABLED` | `true` | 是否启用 LangGraph 编排层；关闭后回退到旧版 `_stream_chat_legacy()` 流程 |
@@ -721,6 +768,13 @@ API 可按会话传入 `promptConfig` 覆盖配置：
 | `RESPONSE_MAX_TOKENS_CBT` | `280` | 需要 CBT 微引导时的流式主回复最大 token |
 | `PROMPT_PROFILE` | `warm_cbt` | 默认提示词 profile，见 `Code/xiaoya_agent/prompts/runtime.py` |
 | `OUTPUT_MODE` | `brief_support` | 默认输出模式，见 `Code/xiaoya_agent/prompts/runtime.py` |
+| `COHORT_LEARNING_ENABLED` | `true` | 是否启用跨用户匿名群体学习模型 |
+| `COHORT_LEARNING_CONTEXT_ENABLED` | `true` | 是否把匿名群体经验注入主回复提示词 |
+| `COHORT_LEARNING_MIN_USERS` | `2` | 至少多少个用户模型才生成可用群体经验 |
+| `COHORT_LEARNING_MIN_SIGNAL_USERS` | `2` | 某个共性信号至少出现在多少个用户中才可注入 |
+| `COHORT_LEARNING_MAX_CONTEXT_ITEMS` | `4` | 每类群体信号最多注入多少条 |
+| `COHORT_LEARNING_MAX_USERS` | `500` | 每次重建最多扫描多少个用户心理模型 |
+| `COHORT_LEARNING_REFRESH_SECONDS` | `300` | 群体学习模型缓存多久后允许自动重建 |
 | `MCP_SERVICES_ENABLED` | `true` | 是否启用统一 MCP-style 服务层 |
 | `MCP_TIMEZONE` | `Asia/Shanghai` | 当前时间服务使用的时区 |
 | `RAG_ENABLED` | `true` | 是否启用 RAG 检索工具；运行时后端固定为 Dify Knowledge Base |
@@ -749,7 +803,7 @@ API 可按会话传入 `promptConfig` 覆盖配置：
 | `STRUCTURED_OUTPUT_ENABLED` | `true` | CBT/危机/移植/综合分析是否启用结构化输出请求和 Pydantic 校验 |
 | `STRUCTURED_OUTPUT_MODE` | `json_object` | 结构化输出请求模式；供应商支持 JSON Schema 时可改为 `json_schema` |
 | `STRUCTURED_OUTPUT_STRICT` | `false` | `json_schema` 模式下是否请求严格 schema |
-| `SESSION_STATE_ENABLED` | `true` | API 会话是否写入并恢复 `agent_state.json` 状态快照 |
+| `SESSION_STATE_ENABLED` | `true` | API 会话是否写入并恢复状态快照；MySQL 模式写入 `xiaoya_session_states` |
 | `CBT_ENABLED` | `true` | 是否启用 CBT 能力 |
 | `AUTO_CBT_INTERVENTION` | `true` | 是否允许已有结构化 CBT 分析的路径合入 CBT 微引导；默认流式主回复由实时提示词做语义自决策 |
 | `CBT_LLM_ENABLED` | `true` | 后台统一分析/独立 CBT 分析是否优先使用 LLM |
@@ -795,38 +849,21 @@ API 可按会话传入 `promptConfig` 覆盖配置：
 
 ## 数据持久化
 
-默认数据目录为项目根目录下的 `data/`：
+默认建议使用 MySQL。`config.env` 中保持 `STORAGE_BACKEND=mysql` 后，运行时用户数据会进入下面这些表：
 
 ```text
-data/
-├─ prompt_registry.json
-├─ chat_history.json
-├─ user_state.json
-├─ energy_progress.json
-├─ crisis_history.json
-├─ users/
-│  └─ <safe_user_id>/
-│     ├─ psych_model_meta.json
-│     ├─ psych_model.json
-│     ├─ conversation_index.json
-│     ├─ conversations/
-│     │  ├─ api_<safe_session_id>.json
-│     │  └─ cli_cli.json
-│     ├─ cli_session/
-│     │  └─ chat_history.json
-│     ├─ user_state.json
-│     ├─ energy_progress.json
-│     └─ crisis_history.json
-└─ sessions/
-   └─ <safe_session_id>/
-      ├─ session_meta.json
-      ├─ agent_state.json
-      └─ chat_history.json
+xiaoya_users             # 用户长期心理模型、用户状态、能量进度、危机历史
+xiaoya_sessions          # API 会话元数据、标题、阶段、提示词版本
+xiaoya_session_states    # 会话级 Agent 状态快照
+xiaoya_messages          # 每个 sessionId 的逐条消息
+xiaoya_conversations     # API/CLI 统一会话索引和历史快照
+xiaoya_cohort_models     # 匿名群体学习结果
+xiaoya_prompt_registries # 提示词热更新注册表
 ```
 
-命令行默认使用 `data/`。API 会为每个 `sessionId` 创建独立会话目录，为每个 `userId` / `patientId` 创建独立心理模型目录。会话目录保存运行时聊天历史和会话快照；用户目录保存长期心理模型、统一会话历史索引、移植阶段、心理能量、CBT 用户画像和危机历史。目录名分别来自 `safeSessionId` 和 `safeUserId`，系统会拒绝不同外部 ID 之间的安全目录碰撞。
+`data/` 只保留为旧 JSON 数据迁移来源或 `STORAGE_BACKEND=json` 兼容模式目录；MySQL 模式不会再把用户历史、对话、心理模型、能量进度或危机记录写成本地运行时文件。兼容字段 `psychModelDir` / `dataDir` 在 MySQL 模式下会返回 `mysql:xiaoya_users/<safe_user_id>`、`mysql:xiaoya_sessions/<safe_session_id>` 这类数据库引用，而不是 Windows 本地路径。
 
-命令行入口支持 `user <id>` 切换用户，并支持 `psych-model` / `model` 查看当前用户心理模型快照。CLI 的短期对话历史保存在 `data/users/<safe_user_id>/cli_session/`，并同步到 `data/users/<safe_user_id>/conversations/cli_cli.json`；API 会话也会同步到同一用户的 `conversations/` 目录，因此可以通过用户目录统一查看该用户的 CLI/API 对话历史。
+命令行入口支持 `user <id>` 切换用户，并支持 `psych-model` / `model` 查看当前用户心理模型快照。CLI 会话和 API 会话都会同步到 `xiaoya_conversations`，因此可以通过 `GET /v1/users/<userId>/conversations?includeHistory=true` 或 SQL 查询统一查看某个用户的 CLI/API 对话历史。
 
 ## RAG 状态
 
