@@ -1,7 +1,0 @@
-com\xinya\framework\config\MyBatisConfig.class
-com\xinya\framework\security\InternalApiKeyFilter.class
-com\xinya\framework\web\GlobalExceptionHandler.class
-com\xinya\framework\security\JwtAuthenticationFilter.class
-com\xinya\framework\config\SecurityConfig.class
-com\xinya\framework\config\WebClientConfig.class
-com\xinya\framework\config\MetaObjectHandlerConfig.class
