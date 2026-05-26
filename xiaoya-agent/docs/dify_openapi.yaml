@@ -1,0 +1,434 @@
+openapi: 3.0.3
+info:
+  title: Xiaoya Dify Tool API
+  version: 1.0.0
+  description: |
+    OpenAPI schema for importing Xiaoya as a Dify custom tool.
+    Dify should call /v1/dify/chat as the outer workflow/tool entrypoint.
+    The endpoint keeps Xiaoya's existing LangGraph runtime, user model,
+    session state, RAG, safety assessment, and structured metadata.
+servers:
+  - url: http://127.0.0.1:8001
+paths:
+  /v1/dify/chat:
+    post:
+      operationId: xiaoyaDifyChat
+      summary: Run one Xiaoya chat turn through the LangGraph runtime
+      description: |
+        Blocking JSON endpoint intended for Dify Chatflow or Workflow custom tools.
+        Use Dify conversation_id as session identity and Dify user as user identity.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DifyChatRequest"
+            examples:
+              basic:
+                value:
+                  query: "我今天有点焦虑，担心移植会失败。"
+                  conversation_id: "dify-conv-001"
+                  user: "patient-001"
+                  inputs:
+                    stage: "PRETREATMENT"
+                    psychEnergy: 45
+      responses:
+        "200":
+          description: Xiaoya reply and structured metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DifyChatResponse"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /v1/users/{userId}/psych-model:
+    get:
+      operationId: getXiaoyaUserPsychModel
+      summary: Get the persisted psychological model for a user
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: User psychological model
+          content:
+            application/json:
+              schema:
+                type: object
+        "404":
+          description: User does not exist
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /v1/users/{userId}/conversations:
+    get:
+      operationId: listXiaoyaUserConversations
+      summary: List unified API/CLI conversations for a user
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: includeHistory
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: User conversation index
+          content:
+            application/json:
+              schema:
+                type: object
+        "404":
+          description: User does not exist
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /v1/dify/status:
+    get:
+      operationId: getXiaoyaDifyStatus
+      summary: Get Dify replacement status
+      description: Shows which Xiaoya functions are currently delegated to Dify and which remain in Python/LangGraph.
+      responses:
+        "200":
+          description: Dify replacement status
+          content:
+            application/json:
+              schema:
+                type: object
+  /v1/dify/options:
+    get:
+      operationId: getXiaoyaDifyOptions
+      summary: Get Dify input options and output field names
+      description: Lists prompt profiles, output modes, stages, and Dify-friendly output fields.
+      responses:
+        "200":
+          description: Dify input options
+          content:
+            application/json:
+              schema:
+                type: object
+  /v1/dify/recommendations:
+    post:
+      operationId: getXiaoyaDifyRecommendations
+      summary: Generate Dify-friendly recommended questions
+      description: Returns recommended questions as both an array and flattened question1-question4 fields.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Recommended questions for Dify branch/display nodes
+          content:
+            application/json:
+              schema:
+                type: object
+  /v1/dify/context:
+    post:
+      operationId: getXiaoyaDifyContext
+      summary: Get compact Dify session context
+      description: Returns flattened session, user model, energy, crisis, and display state for Dify variables and cards.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Dify session context
+          content:
+            application/json:
+              schema:
+                type: object
+  /v1/dify/grounding:
+    post:
+      operationId: getXiaoyaDifyGrounding
+      summary: Get a grounding exercise for Dify display
+      description: Returns a grounding exercise in Dify-friendly output fields.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Grounding exercise for Dify display
+          content:
+            application/json:
+              schema:
+                type: object
+  /v1/dify/harbor:
+    post:
+      operationId: getXiaoyaDifyHarbor
+      summary: Start a Heart Harbor bedside regulation practice
+      description: |
+        Returns a scenario-classified lightweight practice for anxiety, fear,
+        insomnia, pain, emotional overwhelm, or daily relaxation. The result is
+        suitable for Dify cards or Answer nodes and includes voice guidance text.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DifyHarborRequest"
+            examples:
+              anxietyBreathing:
+                value:
+                  conversation_id: "dify-conv-001"
+                  user: "patient-001"
+                  query: "我现在很焦虑，想做一分钟呼吸"
+                  inputs:
+                    scenario: "焦虑"
+                    toolType: "呼吸"
+                    durationSeconds: 60
+      responses:
+        "200":
+          description: Heart Harbor practice for Dify display
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DifyHarborResponse"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+components:
+  schemas:
+    DifyChatRequest:
+      type: object
+      required:
+        - query
+      properties:
+        query:
+          type: string
+          description: Current user message from Dify.
+        message:
+          type: string
+          description: Alias of query for non-Dify callers.
+        conversation_id:
+          type: string
+          description: Dify conversation id. Xiaoya maps it to sessionId and LangGraph thread_id.
+        conversationId:
+          type: string
+          description: CamelCase alias of conversation_id.
+        sessionId:
+          type: string
+          description: Explicit Xiaoya session id. Overrides generated Dify session id.
+        user:
+          type: string
+          description: Dify user id. Xiaoya maps it to the long-term user psychological model.
+        userId:
+          type: string
+          description: Explicit Xiaoya user id.
+        patientId:
+          type: string
+          description: Alias of userId.
+        response_mode:
+          type: string
+          enum: [blocking, streaming]
+          description: Kept for Dify compatibility. This endpoint returns blocking JSON.
+        waitForAnalysis:
+          type: boolean
+          default: true
+          description: Whether to wait for post-stream structured analysis before returning metadata.
+        analysisWaitSeconds:
+          type: number
+          default: 8
+          description: Maximum seconds to wait for Xiaoya background analysis.
+        patientContext:
+          type: object
+          additionalProperties: true
+          properties:
+            stage:
+              type: string
+              enum: [PRETREATMENT, TRANSPLANT, RECOVERY]
+            psychEnergy:
+              type: integer
+        promptConfig:
+          type: object
+          additionalProperties: true
+          properties:
+            promptProfile:
+              type: string
+            outputMode:
+              type: string
+            extraInstructions:
+              type: string
+        responseStyle:
+          type: string
+          description: Optional Dify-selected style. It is converted to extraInstructions.
+        workflowContext:
+          type: string
+          description: Optional upstream Dify branch context. It is converted to extraInstructions.
+        inputs:
+          type: object
+          additionalProperties: true
+          description: Dify workflow inputs. stage, psychEnergy, userId, sessionId, patientContext, promptConfig, responseStyle, and workflowContext are supported.
+          properties:
+            scenario:
+              type: string
+              description: Optional Heart Harbor scene, such as 焦虑、恐惧、失眠、疼痛、崩溃、放松.
+            toolType:
+              type: string
+              description: Optional Heart Harbor tool, such as 呼吸、正念、冥想、音乐、肌肉、54321.
+            durationSeconds:
+              type: integer
+              enum: [30, 60, 120, 180, 300]
+              description: Optional Heart Harbor duration.
+    DifyChatResponse:
+      type: object
+      properties:
+        answer:
+          type: string
+          description: Xiaoya reply text for the Dify answer node.
+        sessionId:
+          type: string
+        userId:
+          type: string
+        sessionTitle:
+          type: string
+          description: Current Xiaoya session title for Dify conversation cards.
+        recommendedQuestions:
+          type: array
+          description: Recommended questions for outer UI display.
+          items:
+            type: string
+        nextAction:
+          type: string
+          description: Recommended outer workflow branch action.
+        shouldNotify:
+          type: boolean
+          description: Whether the outer workflow should notify or show an alert component.
+        crisisLevel:
+          type: string
+          description: Current crisis level, such as none, low, warning, high, or emergency.
+        metadata:
+          type: object
+          additionalProperties: true
+        difyOutputs:
+          type: object
+          additionalProperties: true
+          description: Flattened fields for Dify branch/display nodes.
+          properties:
+            answer:
+              type: string
+            nextAction:
+              type: string
+            shouldNotify:
+              type: boolean
+            crisisLevel:
+              type: string
+            recommendedQuestions:
+              type: array
+              items:
+                type: string
+            question1:
+              type: string
+            question2:
+              type: string
+            question3:
+              type: string
+            question4:
+              type: string
+            sessionTitle:
+              type: string
+    DifyHarborRequest:
+      type: object
+      additionalProperties: true
+      properties:
+        query:
+          type: string
+          description: User text used to infer Heart Harbor scene and tool.
+        message:
+          type: string
+          description: Alias of query.
+        conversation_id:
+          type: string
+          description: Dify conversation id mapped to Xiaoya sessionId.
+        user:
+          type: string
+          description: Dify user id mapped to Xiaoya userId.
+        scenario:
+          type: string
+          description: Scene name or key, such as anxiety, fear, insomnia, pain, overwhelm, daily_relax.
+        toolType:
+          type: string
+          description: Tool name or key, such as breathing_regulation, mindfulness_guidance, meditation, music_relaxation, progressive_muscle_relaxation, grounding_54321.
+        durationSeconds:
+          type: integer
+          enum: [30, 60, 120, 180, 300]
+        mode:
+          type: string
+          enum: [voice, text]
+          default: voice
+        inputs:
+          type: object
+          additionalProperties: true
+          description: Dify workflow inputs. scenario, toolType, durationSeconds, mode, userId, and sessionId are supported.
+    DifyHarborResponse:
+      type: object
+      properties:
+        difyOutputs:
+          type: object
+          additionalProperties: true
+          properties:
+            practice:
+              type: object
+              additionalProperties: true
+            guideText:
+              type: string
+            displayText:
+              type: string
+            title:
+              type: string
+            scenario:
+              type: string
+            toolType:
+              type: string
+            durationSeconds:
+              type: integer
+            nextAction:
+              type: string
+              enum: [show_harbor_practice]
+            sessionId:
+              type: string
+            userId:
+              type: string
+            threadId:
+              type: string
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
