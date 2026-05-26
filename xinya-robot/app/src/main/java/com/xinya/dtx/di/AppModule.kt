@@ -129,7 +129,7 @@ object AppModule {
  * - 真机调试：改为宿主机的局域网 IP（如 10.223.3.195）
  */
 object BuildConfig {
-    const val API_BASE_URL = "http://10.179.65.60:8081/"
-//    const val API_BASE_URL = "http://10.0.2.2:8081/"
+//    const val API_BASE_URL = "http://10.179.65.60:8081/"
+    const val API_BASE_URL = "http://10.0.2.2:8081/"
     const val DEBUG = true
 }

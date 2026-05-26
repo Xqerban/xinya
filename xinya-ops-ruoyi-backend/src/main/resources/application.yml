@@ -1,0 +1,47 @@
+server:
+  port: 8082
+  servlet:
+    context-path: /
+
+spring:
+  application:
+    name: xinya-ops-ruoyi-backend
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${OPS_DB_NAME:xinya_ops}?useUnicode=true&characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: ${OPS_DB_USER:xinya_ops}
+    password: ${OPS_DB_PASS:xinya_ops}
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+  flyway:
+    enabled: false
+
+mybatis-plus:
+  mapper-locations: classpath*:mapper/**/*.xml
+  global-config:
+    db-config:
+      id-type: INPUT
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+xinya:
+  auth:
+    jwt-secret: ${JWT_SECRET:xinya-ops-jwt-secret-key-2024-please-change-in-production}
+    access-token-exp-seconds: 900
+    refresh-token-exp-seconds: 604800
+  clinical:
+    base-url: ${CLINICAL_BASE_URL:http://localhost:8080}
+    internal-key: ${INTERNAL_API_KEY:dev-internal-key}
+
+logging:
+  level:
+    com.xinya.ops: INFO
+    com.baomidou.mybatisplus: WARN

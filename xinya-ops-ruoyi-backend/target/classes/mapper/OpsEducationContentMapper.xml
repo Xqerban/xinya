@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.xinya.ops.education.mapper.OpsEducationContentMapper">
+
+    <select id="findByFilters" resultType="com.xinya.ops.education.entity.OpsEducationContent">
+        SELECT * FROM education_contents
+        <where>
+            <if test="stage != null">AND (stage = #{stage} OR stage IS NULL)</if>
+            <if test="category != null">AND category = #{category}</if>
+            <if test="contentType != null">AND content_type = #{contentType}</if>
+            <if test="keyword != null">AND title LIKE CONCAT('%', #{keyword}, '%')</if>
+        </where>
+        ORDER BY sort_order ASC, created_at DESC
+    </select>
+
+</mapper>
