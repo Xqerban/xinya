@@ -3,6 +3,10 @@
 
 xinya-backend/target/
 
+# Node.js
+xinya-nurse/node_modules
+xinya-ops/node_modules
+
 # Python
 .venv/
 **/.venv/
