@@ -2,9 +2,11 @@ package com.xinya.dtx.feature.home.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -21,6 +23,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.xinya.dtx.BuildConfig
 import com.xinya.dtx.ui.theme.*
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -69,7 +72,15 @@ fun HomeScreen(
                     .fillMaxHeight(),
                 contentAlignment = Alignment.Center
             ) {
-                WelcomeCard(uiState)
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    WelcomeCard(uiState)
+                    if (BuildConfig.DEBUG) {
+                        VoiceDebugPanel()
+                    }
+                }
             }
 
             // 右栏（65%）：3 列功能入口网格

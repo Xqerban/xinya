@@ -65,4 +65,24 @@ class SetupViewModel @Inject constructor(
     fun clearError() {
         _uiState.value = _uiState.value.copy(error = null)
     }
+
+    fun skipBindingForDebug(
+        patientId: String = "debug-patient",
+        patientName: String = "调试患者"
+    ) {
+        viewModelScope.launch {
+            _uiState.value = SetupUiState(isLoading = true)
+            runCatching {
+                sessionManager.saveBindingInfo(
+                    patientId = patientId,
+                    patientName = patientName,
+                    deviceToken = "debug-device-token"
+                )
+            }.onSuccess {
+                _uiState.value = SetupUiState(isSuccess = true, patientName = patientName)
+            }.onFailure { error ->
+                _uiState.value = SetupUiState(error = error.message ?: "调试跳过绑定失败")
+            }
+        }
+    }
 }

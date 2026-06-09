@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -5,6 +7,19 @@ plugins {
     alias(libs.plugins.kotlin.kapt)
     alias(libs.plugins.hilt)
 }
+
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) {
+        file.inputStream().use(::load)
+    }
+}
+
+fun localProperty(name: String): String =
+    localProperties.getProperty(name, "")
+
+fun asBuildConfigString(value: String): String =
+    "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
 android {
     namespace = "com.xinya.dtx"
@@ -18,6 +33,11 @@ android {
         versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        buildConfigField("String", "IFLYTEK_AIKIT_APP_ID", asBuildConfigString(localProperty("iflytek.aiKit.appId")))
+        buildConfigField("String", "IFLYTEK_AIKIT_API_KEY", asBuildConfigString(localProperty("iflytek.aiKit.apiKey")))
+        buildConfigField("String", "IFLYTEK_AIKIT_API_SECRET", asBuildConfigString(localProperty("iflytek.aiKit.apiSecret")))
+        buildConfigField("String", "IFLYTEK_MSC_APP_ID", asBuildConfigString(localProperty("iflytek.msc.appId")))
     }
 
     buildTypes {
@@ -38,6 +58,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -51,6 +72,10 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach 
 }
 
 dependencies {
+    // iFlytek offline speech SDKs provided by the client.
+    implementation(files("libs/AIKit.aar"))
+    implementation(files("libs/Msc.jar"))
+    
     // AndroidX Core
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
