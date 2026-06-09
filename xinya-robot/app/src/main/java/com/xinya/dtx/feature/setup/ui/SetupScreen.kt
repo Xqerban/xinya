@@ -1,13 +1,41 @@
 package com.xinya.dtx.feature.setup.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MedicalServices
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -18,11 +46,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.xinya.dtx.ui.theme.*
+import com.xinya.dtx.BuildConfig
+import com.xinya.dtx.ui.theme.LeafGreen
+import com.xinya.dtx.ui.theme.PrimaryGreen
+import com.xinya.dtx.ui.theme.TextPrimary
+import com.xinya.dtx.ui.theme.TextSecondary
 
-/**
- * 机器人首次启动绑定患者的设置界面（横屏适配：左侧品牌区 + 右侧表单）
- */
 @Composable
 fun SetupScreen(
     onBindingSuccess: () -> Unit,
@@ -48,7 +77,6 @@ fun SetupScreen(
                 )
             )
     ) {
-        // 左侧品牌装饰区（50%）
         Column(
             modifier = Modifier
                 .weight(1f)
@@ -82,11 +110,9 @@ fun SetupScreen(
                 style = MaterialTheme.typography.bodyLarge,
                 color = Color.White.copy(alpha = 0.75f),
                 textAlign = TextAlign.Center,
-                lineHeight = MaterialTheme.typography.bodyLarge.lineHeight
             )
         }
 
-        // 右侧表单区（50%）
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -96,7 +122,7 @@ fun SetupScreen(
         ) {
             Card(
                 modifier = Modifier
-                    .widthIn(max = 500.dp)
+                    .width(500.dp)
                     .padding(32.dp),
                 shape = RoundedCornerShape(24.dp),
                 colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -105,7 +131,8 @@ fun SetupScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(36.dp),
+                        .padding(36.dp)
+                        .verticalScroll(rememberScrollState()),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
@@ -116,7 +143,7 @@ fun SetupScreen(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "请让护士在管理端生成绑定码，\n然后在下方输入患者ID和绑定码",
+                        text = "请让护士在管理端生成绑定码，然后在下方输入患者 ID 和绑定码",
                         style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary,
                         textAlign = TextAlign.Center
@@ -130,7 +157,7 @@ fun SetupScreen(
                             patientId = it
                             viewModel.clearError()
                         },
-                        label = { Text("患者ID") },
+                        label = { Text("患者 ID") },
                         placeholder = { Text("例如：p-001") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
@@ -151,7 +178,7 @@ fun SetupScreen(
                                 viewModel.clearError()
                             }
                         },
-                        label = { Text("6位绑定码") },
+                        label = { Text("6 位绑定码") },
                         placeholder = { Text("输入护士提供的绑定码") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
@@ -209,10 +236,28 @@ fun SetupScreen(
                         }
                     ) {
                         Text(
-                            "【调试】使用默认参数",
+                            "【调试】填入默认参数",
                             style = MaterialTheme.typography.labelSmall,
                             color = TextSecondary
                         )
+                    }
+
+                    if (BuildConfig.DEBUG) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = { viewModel.skipBindingForDebug() },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.secondary
+                            )
+                        ) {
+                            Text(
+                                "【Debug】跳过绑定进入首页",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
             }

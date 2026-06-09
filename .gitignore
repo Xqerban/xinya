@@ -1,11 +1,22 @@
 .idea/
 .vscode/
 
-xinya-backend/target/
+**/target/
 
 # Python
 .venv/
 **/.venv/
 __pycache__/
 **/__pycache__/
+
+# Local Android/Gradle verification caches
+**/.gradle-local/
+**/.gradle-verify/
+**/.tmp_aikit/
+**/.kotlin/
+
+# Vendor SDK samples and temporary official demo projects
+/aikit-official-demo-test/
+/Android_esriat_exp1149_3c31d531/
+/AIKit_AEE_Android_*/
 
